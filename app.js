@@ -619,5 +619,3 @@ async function chercherVilleManuelle() {
     document.getElementById('meteo-status').textContent = "Erreur de recherche";
   }
 }
-
-*** End Patch
