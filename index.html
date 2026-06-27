@@ -1,1026 +1,178 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard Températures</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
-.totem-visual-card {
-  background: #1a1d27;
-  border: 1px solid #2a2d3a;
-  border-radius: 12px;
-  padding: 20px;
-  margin: 20px 0;
-}
-
-.totem-title {
-  font-size: 13px;
-  color: #aaa;
-  margin-bottom: 14px;
-  text-align: center;
-}
-
-#totem-container {
-  position: relative;
-  width: 100%;
-  max-width: 420px;
-  margin: auto;
-}
-
-#totem-image {
-  width: 100%;
-  display: block;
-  border-radius: 12px;
-}
-
-.sensor {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  cursor: move;
-  z-index: 20;
-}
-
-.sensor-dot {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 2px solid white;
-}
-
-.sensor-label {
-  position: absolute;
-  left: 24px;
-  top: -8px;
-  background: rgba(0, 0, 0, 0.85);
-  color: #ffffff;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-  border: 1px solid #3a3d4a;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
-}
-
-.s1 .sensor-dot { background: #4fc3f7; }
-.s2 .sensor-dot { background: #81c784; }
-.s3 .sensor-dot { background: #ffb74d; }
-.s4 .sensor-dot { background: #ba68c8; }
-.s5 .sensor-dot { background: #e57373; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    .status-bar {
-      text-align: center;
-      margin-bottom: 16px;
-    }
-
-    body {
-      font-family: 'Segoe UI', Arial, sans-serif;
-      background: #0f1117;
-      color: #e0e0e0;
-      min-height: 100vh;
-      padding: 0 0 20px 0;
-      overflow-x: hidden;
-    }
-
-    /* ── Conteneur principal pour s'adapter à la sidebar ── */
-    .main-content {
-      transition: margin-right 0.3s ease;
-      width: 100%;
-    }
-
-    /* ── Bandeau Header Blanc Réorganisé ── */
-    .header-bandeau {
-      background: #ffffff;
-      padding: 15px 30px;
-      margin-bottom: 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between; /* Espace le logo/titre du bouton burger */
-      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-    }
-
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 20px;
-      flex-wrap: wrap;
-    }
-
-    .logo-container {
-      display: flex;
-      align-items: center;
-    }
-
-    .top-logo {
-      max-height: 50px;
-      width: auto;
-      display: block;
-    }
-
-    h1 {
-      font-size: 22px;
-      font-weight: 700;
-      color: #1a1d27;
-      letter-spacing: 0.5px;
-    }
-
-    /* ── Bouton Menu Burger ── */
-    .burger-btn {
-      background: #1a1d27;
-      border: 1px solid #2a2d3a;
-      color: #fff;
-      padding: 10px 14px;
-      border-radius: 8px;
-      font-size: 20px;
-      cursor: pointer;
-      transition: all 0.2s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .burger-btn:hover { border-color: #4fc3f7; color: #4fc3f7; background: #2a2d3a; }
-
-    .subtitle {
-      text-align: center;
-      font-size: 12px;
-      color: #888;
-      margin-bottom: 20px;
-      padding: 0 20px;
-    }
-
-    /* ── Barre de recherche de ville ── */
-    .search-container {
-      display: flex;
-      justify-content: center;
-      gap: 8px;
-      margin-bottom: 20px;
-      padding: 0 20px;
-    }
-
-    .search-input {
-      background: #1a1d27;
-      border: 1px solid #2a2d3a;
-      border-radius: 8px;
-      color: #fff;
-      padding: 8px 14px;
-      font-size: 13px;
-      width: 240px;
-      font-family: inherit;
-    }
-
-    .search-input:focus { outline: none; border-color: #ffeb3b; }
-
-    .search-btn {
-      background: #2a2d3a;
-      color: #fff;
-      border: 1px solid #3a3d4a;
-      border-radius: 8px;
-      padding: 8px 16px;
-      font-size: 13px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .search-btn:hover { background: #ffeb3b; color: #0f1117; border-color: #ffeb3b; }
-
-    /* ── VOLET LATÉRAL EXTENSIBLE (Menu Burger) ── */
-    .sidebar {
-      position: fixed;
-      top: 0;
-      right: -320px; /* Caché à droite par défaut */
-      width: 320px;
-      height: 100%;
-      background: #161922;
-      border-left: 1px solid #2a2d3a;
-      box-shadow: -5px 0 25px rgba(0,0,0,0.5);
-      z-index: 100;
-      transition: right 0.3s ease;
-      padding: 24px;
-      overflow-y: auto; /* Permet de scroller dans le menu si beaucoup d'options */
-    }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
+    body, input, button, select { font-family: inherit; }
+    a { color: inherit; text-decoration: none; }
+    button { cursor: pointer; }
+    .sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); opacity: 0; visibility: hidden; transition: opacity 0.2s ease; z-index: 10; }
+    .sidebar-overlay.show { opacity: 1; visibility: visible; }
+    .sidebar { position: fixed; top: 0; right: -340px; width: 320px; height: 100vh; background: #121524; color: #e3e3e3; padding: 20px; box-shadow: -4px 0 20px rgba(0,0,0,0.3); overflow-y: auto; transition: right 0.25s ease; z-index: 11; }
     .sidebar.open { right: 0; }
-
-    /* Voile d'ombrage quand le menu est ouvert */
-    .sidebar-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.5);
-      z-index: 99;
-      display: none;
-    }
-    .sidebar-overlay.show { display: block; }
-
-    .sidebar-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 24px;
-      border-bottom: 1px solid #2a2d3a;
-      padding-bottom: 12px;
-    }
-    .sidebar-title { font-size: 16px; font-weight: 600; color: #fff; }
-    .close-sidebar-btn {
-      background: transparent;
-      border: none;
-      color: #888;
-      font-size: 20px;
-      cursor: pointer;
-    }
-    .close-sidebar-btn:hover { color: #fff; }
-
-    .sidebar-section {
-      background: #1a1d27;
-      border: 1px solid #2a2d3a;
-      border-radius: 10px;
-      padding: 16px;
-      margin-bottom: 16px;
-    }
-    .section-title { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 12px; letter-spacing: 0.5px;}
-
-    /* Commutateur de mode */
-    .mode-group {
-      display: flex;
-      background: #0f1117;
-      border: 1px solid #2a2d3a;
-      border-radius: 6px;
-      overflow: hidden;
-      margin-bottom: 14px;
-    }
-    .mode-group button {
-      flex: 1;
-      background: transparent;
-      border: none;
-      color: #666;
-      padding: 8px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .mode-group button.active { background: #2a2d3a; color: #4fc3f7; }
-
-    /* Slider de vitesse */
-    .slider-container { display: none; margin-top: 10px; }
-    .slider-container.show { display: block; }
-    .pwm-slider {
-      width: 100%;
-      accent-color: #4fc3f7;
-      margin-top: 8px;
-      cursor: pointer;
-    }
-    .slider-val { text-align: center; font-size: 18px; font-weight: bold; color: #4fc3f7; margin-top: 6px;}
-
-    /* Infos de retour ventilateur */
-    .info-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;}
-    .info-label { color: #666; }
-    .info-value { color: #fff; font-weight: 600; }
-
-    /* Futurs placeholders options */
-    .future-option-placeholder {
-      font-size: 12px;
-      color: #555;
-      text-align: center;
-      padding: 10px;
-      border: 1px dashed #2a2d3a;
-      border-radius: 6px;
-    }
-
-    .rename-list {
-      display: grid;
-      gap: 10px;
-    }
-    .rename-row {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 6px;
-    }
-    .rename-row label {
-      font-size: 11px;
-      color: #aaa;
-      display: block;
-    }
-    .rename-row input {
-      width: 100%;
-      padding: 8px 10px;
-      background: #0f1117;
-      border: 1px solid #2a2d3a;
-      border-radius: 8px;
-      color: #fff;
-      font-size: 13px;
-    }
-    .rename-row input:focus {
-      outline: none;
-      border-color: #4fc3f7;
-    }
-
-    .profile-section {
-      display: grid;
-      gap: 10px;
-    }
-    .profile-section select,
-    .profile-section input {
-      width: 100%;
-      padding: 8px 10px;
-      background: #0f1117;
-      border: 1px solid #2a2d3a;
-      border-radius: 8px;
-      color: #fff;
-      font-size: 13px;
-    }
-    .profile-section button {
-      width: 100%;
-      padding: 10px 12px;
-      border-radius: 8px;
-      border: 1px solid #2a2d3a;
-      background: #2a2d3a;
-      color: #fff;
-      cursor: pointer;
-      transition: all 0.2s;
-      font-size: 13px;
-    }
-    .profile-section button:hover { background: #4fc3f7; color: #0f1117; }
-    .profile-section button:disabled { background: #20232d; color: #666; cursor: not-allowed; }
-
-    /* ── Cartes ── */
-    .cards {
-      display: flex;
-      gap: 14px;
-      justify-content: center;
-      flex-wrap: wrap;
-      margin-bottom: 24px;
-      padding: 0 20px;
-    }
-
-    .card {
-      background: #1a1d27;
-      border: 1px solid #2a2d3a;
-      border-radius: 12px;
-      padding: 18px 28px;
-      text-align: center;
-      min-width: 140px;
-      transition: border-color 0.3s;
-    }
-    .card.active { border-color: var(--color); }
-    .card-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-    .card-temp { font-size: 36px; font-weight: 700; color: var(--color); line-height: 1; }
-    .card-unit { font-size: 16px; color: #888; margin-left: 2px; }
-    .card-status { font-size: 10px; color: #555; margin-top: 6px; }
-    .card-meteo { border: 1px dashed #444; }
-
-    /* ── Contrôles de temps ── */
-    .controls { display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
-    .controls label { font-size: 12px; color: #888; margin-right: 4px; }
-    .btn-group { display: flex; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 8px; overflow: hidden; }
-    .btn-group button { background: transparent; border: none; color: #888; padding: 7px 14px; font-size: 12px; cursor: pointer; transition: all 0.2s; border-right: 1px solid #2a2d3a; }
-    .btn-group button:last-child { border-right: none; }
-    .btn-group button.active, .btn-group button:hover { background: #2a2d3a; color: #fff; }
-
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #f44; display: inline-block; margin-right: 6px; }
-    .status-dot.connected { background: #4f4; }
-    #status-text { font-size: 12px; color: #888; }
-
-    /* ── Graphique ── */
-    .chart-container { background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 12px; padding: 20px; position: relative; margin: 0 20px; }
-    .chart-title { font-size: 13px; color: #aaa; margin-bottom: 14px; text-align: center; }
-    canvas { width: 100% !important; }
-
-    .legend { display: flex; gap: 20px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
-    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #aaa; }
+    .close-sidebar-btn { display: block; margin-left: auto; background: transparent; border: none; color: #aaa; font-size: 1.2rem; }
+    .sidebar h2 { margin: 20px 0 12px; font-size: 1rem; color: #fff; }
+    .sidebar label { display: block; margin-bottom: 6px; font-size: 0.85rem; color: #bbb; }
+    .sidebar input, .sidebar select { width: 100%; padding: 10px 12px; margin-bottom: 12px; border: 1px solid #2e3246; border-radius: 8px; background: #14192a; color: #fff; }
+    .sidebar button { width: 100%; padding: 10px 12px; margin-bottom: 10px; border: none; border-radius: 8px; background: #4fc3f7; color: #0b1720; font-weight: 700; }
+    .sidebar button#profile-delete-btn { background: #e57373; color: #111; }
+    .rename-row { margin-bottom: 12px; }
+    .rename-row label { font-size: 0.8rem; margin-bottom: 4px; color: #bbb; }
+    .header-bandeau { background: #fff; color: #111; display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.12); }
+    .header-left { display: flex; align-items: center; gap: 14px; }
+    .top-logo { max-height: 48px; }
+    .burger-btn { border: none; background: #0e1628; color: #fff; padding: 12px 18px; border-radius: 12px; font-size: 1rem; }
+    .main-content { padding: 20px; max-width: 1200px; margin: auto; }
+    .subtitle { margin: 16px 0; color: #cfd4e5; }
+    .status-bar { display: flex; align-items: center; gap: 10px; margin: 12px 0 20px; color: #fff; }
+    .status-dot { width: 12px; height: 12px; border-radius: 50%; background: #aa2aff; display: inline-block; }
+    .search-container { display: flex; gap: 8px; margin-bottom: 18px; }
+    .search-input { flex: 1; padding: 12px 14px; border-radius: 10px; border: 1px solid #2c3449; background: #121827; color: #fff; }
+    .search-btn { padding: 12px 18px; border: none; border-radius: 10px; background: #4fc3f7; color: #0b1720; }
+    .card, .totem-visual-card, .chart-container, .stats, .log-table-wrap { background: #121824; border: 1px solid #222b40; border-radius: 16px; padding: 18px; margin-bottom: 18px; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 18px; }
+    .card-label { font-size: 0.9rem; font-weight: 700; margin-bottom: 8px; }
+    .card-temp { font-size: 2rem; margin-bottom: 10px; }
+    .card-status { color: #98a0b6; font-size: 0.85rem; }
+    .totem-visual-card { position: relative; }
+    #totem-container { position: relative; width: 100%; max-width: 420px; margin: auto; }
+    #totem-image { width: 100%; display: block; border-radius: 16px; }
+    .sensor { position: absolute; transform: translate(-50%, -50%); cursor: move; z-index: 2; }
+    .sensor-dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #fff; }
+    .sensor-label { position: absolute; left: 24px; top: -8px; background: rgba(0, 0, 0, 0.8); color: #fff; padding: 4px 8px; border-radius: 8px; font-size: 0.8rem; white-space: nowrap; }
+    .chart-container { padding-bottom: 10px; }
+    .chart-title { font-size: 1rem; margin-bottom: 14px; color: #ddd; }
+    #legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+    .legend-item { display: inline-flex; align-items: center; gap: 8px; background: #141d2b; border-radius: 999px; padding: 6px 12px; font-size: 0.85rem; }
     .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
-
-    .stats { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-top: 16px; padding: 0 20px; }
-    .stat-box { background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 8px; padding: 10px 18px; text-align: center; min-width: 110px; }
-    .stat-label { font-size: 10px; color: #666; margin-bottom: 4px; }
-    .stat-value { font-size: 18px; font-weight: 600; }
-
-    .log-bar { display: flex; justify-content: space-between; align-items: center; margin: 20px 20px 0 20px; gap: 12px; flex-wrap: wrap; }
-    .log-info { font-size: 12px; color: #888; }
-    .log-info span { color: #4fc3f7; font-weight: 600; }
-    .export-btn { display: flex; align-items: center; gap: 8px; background: #1a7a3c; color: #fff; border: none; border-radius: 8px; padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer; }
-    .export-btn:hover { background: #22a050; }
-    .export-btn:disabled { background: #333; color: #666; cursor: not-allowed; }
-    .clear-btn { background: #2a2d3a; color: #888; border: 1px solid #3a3d4a; border-radius: 8px; padding: 9px 14px; font-size: 12px; cursor: pointer; }
-    .clear-btn:hover { background: #3a3d4a; color: #fff; }
-
-    .log-table-wrap { background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 12px; padding: 16px; margin: 16px 20px 0 20px; max-height: 220px; overflow-y: auto; }
-    .log-table-title { font-size: 12px; color: #aaa; margin-bottom: 10px; }
-    table { width: 100%; border-collapse: collapse; font-size: 11px; }
-    thead th { color: #666; text-align: left; padding: 4px 8px; border-bottom: 1px solid #2a2d3a; font-weight: 500; text-transform: uppercase; }
-    tbody tr:nth-child(even) { background: #1e2130; }
-    tbody td { padding: 5px 8px; color: #ccc; border-bottom: 1px solid #1e2130; }
-    tbody td.temp-val { font-weight: 600; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+    .stat-box { background: #101624; padding: 16px; border-radius: 14px; }
+    .stat-label { margin-bottom: 8px; font-size: 0.85rem; color: #bbb; }
+    .stat-value { font-size: 1.5rem; font-weight: 700; }
+    .log-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .log-info { color: #cfd4e5; }
+    .log-table-wrap table { width: 100%; border-collapse: collapse; }
+    .log-table-wrap th, .log-table-wrap td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #22304b; font-size: 0.9rem; }
+    .log-table-wrap th { color: #98a0b6; }
+    .sensor.s1 { left: 50%; top: 15%; }
+    .sensor.s2 { left: 50%; top: 32%; }
+    .sensor.s3 { left: 50%; top: 50%; }
+    .sensor.s4 { left: 50%; top: 68%; }
+    .sensor.s5 { left: 50%; top: 85%; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+    .btn-group button { border: 1px solid #2a374e; background: #141d2b; color: #e0e0e0; padding: 10px 14px; border-radius: 10px; }
+    .btn-group button.active { background: #4fc3f7; color: #0a1722; border-color: #4fc3f7; }
+    .slider-block { display: none; margin-top: 14px; }
+    .slider-block.show { display: block; }
+    #slider-pwm { width: 100%; }
+    .slider-label { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 0.95rem; }
   </style>
 </head>
 <body>
-
-<div class="sidebar-overlay" id="sidebar-overlay"></div>
-
-<div class="sidebar" id="sidebar">
-  <div class="sidebar-header">
-    <div class="sidebar-title">Menu Options</div>
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+  <aside id="sidebar" class="sidebar">
     <button class="close-sidebar-btn">✕</button>
-  </div>
-
-  <div class="sidebar-section">
-    <div class="section-title">Pilotage Ventilateur</div>
-    <div class="mode-group">
-      <button id="btn-mode-auto" class="active">AUTO</button>
-      <button id="btn-mode-manu">MANUEL</button>
-    </div>
-
-    <div class="slider-container" id="slider-block">
-      <label style="font-size: 12px; color:#aaa;">Vitesse désirée :</label>
-      <input type="range" id="slider-pwm" class="pwm-slider" min="0" max="100" value="0">
-      <div class="slider-val" id="slider-txt-val">0 %</div>
-    </div>
-  </div>
-
-  <div class="sidebar-section">
-    <div class="section-title">Retour d'état (ESP32)</div>
-    <div class="info-row">
-      <div class="info-label">Mode Actif :</div>
-      <div class="info-value" id="status-venti-mode" style="color: #4f4;">AUTO</div>
-    </div>
-    <div class="info-row">
-      <div class="info-label">Vitesse PWM :</div>
-      <div class="info-value" id="status-venti-pwm">-- %</div>
-    </div>
-    <div class="info-row">
-      <div class="info-label">Temp Max :</div>
-      <div class="info-value" id="status-venti-tmax">-- °C</div>
-    </div>
-  </div>
-
-  <div class="sidebar-section">
-    <div class="section-title">Profils de sondes</div>
     <div class="profile-section">
+      <h2>Profils</h2>
       <select id="profile-select"></select>
       <input id="profile-name" type="text" placeholder="Nom du profil" />
-      <button class="profile-save">Créer / Enregistrer le profil</button>
-      <button id="profile-delete-btn" disabled>Supprimer le profil</button>
+      <button>Enregistrer profil</button>
+      <button id="profile-delete-btn">Supprimer</button>
     </div>
-  </div>
-
-  <div class="sidebar-section">
-    <div class="section-title">Renommer les sondes</div>
-    <div class="rename-list" id="rename-list">
-      <div class="rename-row">
-        <label for="sonde-name-0">Sonde 1</label>
-        <input id="sonde-name-0" type="text" placeholder="Nom personnalisé">
-      </div>
-      <div class="rename-row">
-        <label for="sonde-name-1">Sonde 2</label>
-        <input id="sonde-name-1" type="text" placeholder="Nom personnalisé">
-      </div>
-      <div class="rename-row">
-        <label for="sonde-name-2">Sonde 3</label>
-        <input id="sonde-name-2" type="text" placeholder="Nom personnalisé">
-      </div>
-      <div class="rename-row">
-        <label for="sonde-name-3">Sonde 4</label>
-        <input id="sonde-name-3" type="text" placeholder="Nom personnalisé">
-      </div>
-      <div class="rename-row">
-        <label for="sonde-name-4">Sonde 5</label>
-        <input id="sonde-name-4" type="text" placeholder="Nom personnalisé">
+    <div class="rename-section">
+      <h2>Renommer sondes</h2>
+      <div class="rename-row"><label for="sonde-name-0">Sonde 1</label><input id="sonde-name-0" type="text" placeholder="Nom personnalisé" /></div>
+      <div class="rename-row"><label for="sonde-name-1">Sonde 2</label><input id="sonde-name-1" type="text" placeholder="Nom personnalisé" /></div>
+      <div class="rename-row"><label for="sonde-name-2">Sonde 3</label><input id="sonde-name-2" type="text" placeholder="Nom personnalisé" /></div>
+      <div class="rename-row"><label for="sonde-name-3">Sonde 4</label><input id="sonde-name-3" type="text" placeholder="Nom personnalisé" /></div>
+      <div class="rename-row"><label for="sonde-name-4">Sonde 5</label><input id="sonde-name-4" type="text" placeholder="Nom personnalisé" /></div>
+    </div>
+    <div class="ventilo-section">
+      <h2>Ventilateurs</h2>
+      <div style="display:flex; gap:10px; margin-bottom:12px;"><button id="btn-mode-auto" class="active" type="button">AUTO</button><button id="btn-mode-manu" type="button">MANU</button></div>
+      <div id="slider-block" class="slider-block">
+        <input id="slider-pwm" type="range" min="0" max="100" value="50" />
+        <div class="slider-label">PWM <span id="slider-txt-val">50 %</span></div>
       </div>
     </div>
-  </div>
+  </aside>
 
-  <div class="sidebar-section">
-    <div class="section-title">Prochaines options</div>
-    <div class="future-option-placeholder">Zone disponible pour de futurs réglages...</div>
-  </div>
-</div>
+  <div class="main-content" id="main-content">
+    <div class="header-bandeau">
+      <div class="header-left">
+        <img src="iagona red.png" alt="Logo Iagona" class="top-logo" />
+        <div>
+          <div style="font-size:1.2rem;font-weight:700;color:#111;">Dashboard Températures</div>
+          <div style="color:#555;font-size:0.9rem;">Monitorage multi-point en temps réel</div>
+        </div>
+      </div>
+      <button class="burger-btn" type="button">☰</button>
+    </div>
 
-<div class="main-content" id="main-content">
-  
-  <div class="header-bandeau">
-    <div class="header-left">
-      <div class="logo-container">
-        <img src="iagona red.png" alt="Logo Iagona" class="top-logo">
+    <p class="subtitle">Monitorage multi-point — En temps réel</p>
+
+    <div class="status-bar"><span id="dot" class="status-dot"></span><span id="status-text">Connexion MQTT...</span></div>
+
+    <div class="search-container">
+      <input id="input-ville" class="search-input" type="text" placeholder="Changer de ville (ex: Lyon, Marseille...)" />
+      <button class="search-btn" type="button">Rechercher</button>
+    </div>
+
+    <div class="controls">
+      <label>Fenêtre :</label>
+      <div class="btn-group" id="time-btns">
+        <button data-s="30" class="active" type="button">30s</button>
+        <button data-s="120" type="button">2min</button>
+        <button data-s="600" type="button">10min</button>
+        <button data-s="3600" type="button">1h</button>
+        <button data-s="86400" type="button">24h</button>
       </div>
     </div>
-    
-    <button class="burger-btn">☰</button>
-  </div>
 
-  <p class="subtitle">Monitorage multi-point — En temps réel </p>
+    <div class="cards" id="cards"></div>
 
-  <div class="status-bar">
-    <span class="status-dot" id="dot"></span>
-    <span id="status-text">Connexion MQTT...</span>
-  </div>
-
-  <div class="search-container">
-    <input type="text" id="input-ville" class="search-input" placeholder="Changer de ville (ex: Lyon, Marseille...)">
-    <button class="search-btn">Rechercher</button>
-  </div>
-
-  <div class="cards" id="cards"></div>
-<div class="totem-visual-card" style="margin: 20px;">
-  <div class="totem-title">Cartographie thermique du totem</div>
-
-  <div id="totem-container">
-    <img id="totem-image" src="totem-clean.png" alt="Totem">
-
-    <div class="sensor s1" data-id="1"><div class="sensor-dot"></div><div class="sensor-label" id="totem-temp-0">-- °C</div></div>
-    <div class="sensor s2" data-id="2"><div class="sensor-dot"></div><div class="sensor-label" id="totem-temp-1">-- °C</div></div>
-    <div class="sensor s3" data-id="3"><div class="sensor-dot"></div><div class="sensor-label" id="totem-temp-2">-- °C</div></div>
-    <div class="sensor s4" data-id="4"><div class="sensor-dot"></div><div class="sensor-label" id="totem-temp-3">-- °C</div></div>
-    <div class="sensor s5" data-id="5"><div class="sensor-dot"></div><div class="sensor-label" id="totem-temp-4">-- °C</div></div>
-  </div>
-</div>
-
-  <div class="controls">
-    <label>Fenêtre :</label>
-    <div class="btn-group" id="time-btns">
-      <button data-s="30" class="active">30s</button>
-      <button data-s="120">2min</button>
-      <button data-s="600">10min</button>
-      <button data-s="3600">1h</button>
-      <button data-s="86400">24h</button>
+    <div class="totem-visual-card">
+      <div class="totem-title">Cartographie thermique du totem</div>
+      <div id="totem-container">
+        <img id="totem-image" src="totem clean.png" alt="Totem" />
+        <div class="sensor s1" data-id="1"><div class="sensor-dot"></div><div class="sensor-label" id="totem-temp-0">-- °C</div></div>
+        <div class="sensor s2" data-id="2"><div class="sensor-dot"></div><div class="sensor-label" id="totem-temp-1">-- °C</div></div>
+        <div class="sensor s3" data-id="3"><div class="sensor-dot"></div><div class="sensor-label" id="totem-temp-2">-- °C</div></div>
+        <div class="sensor s4" data-id="4"><div class="sensor-dot"></div><div class="sensor-label" id="totem-temp-3">-- °C</div></div>
+        <div class="sensor s5" data-id="5"><div class="sensor-dot"></div><div class="sensor-label" id="totem-temp-4">-- °C</div></div>
+      </div>
     </div>
-  </div>
 
-  <div class="chart-container">
-    <div class="chart-title">Évolution des températures</div>
-    <canvas id="tempChart" height="320"></canvas>
-    <div class="legend" id="legend"></div>
-  </div>
-
-  <div class="stats" id="stats"></div>
-
-  <div class="log-bar">
-    <div class="log-info">
-      <span id="log-count">0</span> mesures enregistrées depuis le démarrage
+    <div class="chart-container">
+      <div class="chart-title">Évolution des températures</div>
+      <canvas id="tempChart" height="320"></canvas>
+      <div id="legend"></div>
     </div>
-    <div style="display:flex;gap:8px">
-      <button class="clear-btn">🗑 Vider le log</button>
-      <button class="export-btn" id="export-btn" disabled>Export</button>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="log-bar">
+      <div class="log-info"><span id="log-count">0</span> mesures enregistrées depuis le démarrage</div>
+      <div style="display:flex; gap:8px;"><button class="clear-btn" type="button">🗑 Vider le log</button><button class="export-btn" id="export-btn" type="button" disabled>Export</button></div>
     </div>
-  </div>
 
-  <div class="log-table-wrap">
-    <div class="log-table-title">📋 Dernières mesures enregistrées</div>
-    <table>
-      <thead>
-        <tr><th>Date</th><th>Heure</th><th>Sonde</th><th>Température</th></tr>
-      </thead>
-      <tbody id="log-tbody"></tbody>
-    </table>
-  </div>
-</div>
-
+    <div class="log-table-wrap">
+      <div class="log-table-title">📋 Dernières mesures enregistrées</div>
+      <table>
+        <thead><tr><th>Date</th><th>Heure</th><th>Sonde</th><th>Température</th></tr></thead>
+        <tbody id="log-tbody"></tbody>
+      </table>
+    </div>
   </div>
 
   <script src="app.js" defer></script>
- </body>
- </html>
-  }));
-}
-
-function applyPositions(positions) {
-  positions.forEach(pos => {
-    const sensor = document.querySelector(`[data-id="${pos.id}"]`);
-    if (sensor) {
-      sensor.style.left = pos.left;
-      sensor.style.top = pos.top;
-    }
-  });
-}
-
-function updateProfileButtons() {
-  const deleteBtn = document.getElementById('profile-delete-btn');
-  if (deleteBtn) {
-    deleteBtn.disabled = profilActuel === 'default';
-  }
-}
-
-function chargerProfiles() {
-  try {
-    const saved = localStorage.getItem(PROFIL_STORAGE_KEY);
-    profilsEnregistres = saved ? JSON.parse(saved) : {};
-  } catch (e) {
-    profilsEnregistres = {};
-  }
-
-  const select = document.getElementById('profile-select');
-  if (!select) return;
-  select.innerHTML = '';
-
-  const defaultOption = document.createElement('option');
-  defaultOption.value = 'default';
-  defaultOption.textContent = 'Par défaut';
-  select.appendChild(defaultOption);
-
-  Object.keys(profilsEnregistres).forEach(name => {
-    const opt = document.createElement('option');
-    opt.value = name;
-    opt.textContent = name;
-    select.appendChild(opt);
-  });
-
-  const last = localStorage.getItem(PROFIL_LAST_KEY);
-  if (last && (last === 'default' || profilsEnregistres[last])) {
-    profilActuel = last;
-  } else {
-    profilActuel = 'default';
-  }
-  select.value = profilActuel;
-  updateProfileButtons();
-}
-
-function chargerProfil(nom, enregistrerLast = true) {
-  if (nom !== 'default' && !profilsEnregistres[nom]) {
-    nom = 'default';
-  }
-
-  profilActuel = nom;
-  updateProfileButtons();
-
-  if (nom === 'default') {
-    SONDE_CUSTOM_NAMES.fill('');
-    document.querySelectorAll('.rename-row input').forEach((input, idx) => input.value = '');
-    mettreAJourAffichageNomsSondes();
-    if (enregistrerLast) {
-      localStorage.setItem(PROFIL_LAST_KEY, 'default');
-    }
-    return;
-  }
-
-  const profil = profilsEnregistres[nom];
-  if (!profil) return;
-
-  if (Array.isArray(profil.names)) {
-    profil.names.forEach((value, idx) => {
-      if (idx < NB_SONDES) {
-        SONDE_CUSTOM_NAMES[idx] = value || '';
-        const input = document.getElementById(`sonde-name-${idx}`);
-        if (input) input.value = SONDE_CUSTOM_NAMES[idx];
-      }
-    });
-  }
-
-  if (Array.isArray(profil.positions)) {
-    applyPositions(profil.positions);
-  }
-
-  mettreAJourAffichageNomsSondes();
-  if (enregistrerLast) {
-    localStorage.setItem(PROFIL_LAST_KEY, nom);
-  }
-}
-
-async function sauvegarderProfil() {
-  const libelle = document.getElementById('profile-name').value.trim();
-  if (!libelle) {
-    alert('Veuillez saisir un nom de profil.');
-    return;
-  }
-
-  profilsEnregistres[libelle] = {
-    name: libelle,
-    names: [...SONDE_CUSTOM_NAMES],
-    positions: getCurrentPositions(),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-  localStorage.setItem(PROFIL_STORAGE_KEY, JSON.stringify(profilsEnregistres));
-  chargerProfiles();
-  const select = document.getElementById('profile-select');
-  if (select) select.value = libelle;
-  await sauvegarderProfilSurServeur(libelle);
-  chargerProfil(libelle);
-}
-
-async function supprimerProfil() {
-  if (profilActuel === 'default') return;
-  if (!confirm(`Supprimer le profil « ${profilActuel} » ?`)) return;
-  delete profilsEnregistres[profilActuel];
-  localStorage.setItem(PROFIL_STORAGE_KEY, JSON.stringify(profilsEnregistres));
-  await supprimerProfilSurServeur(profilActuel);
-  chargerProfiles();
-  const select = document.getElementById('profile-select');
-  if (select) select.value = 'default';
-  chargerProfil('default');
-}
-
-async function initialiserProfils() {
-  chargerProfiles();
-  await chargerProfilesDepuisServeur();
-  const last = localStorage.getItem(PROFIL_LAST_KEY);
-  if (last && last !== 'default' && profilsEnregistres[last]) {
-    await chargerProfil(last, false);
-  } else {
-    chargerNomsSondes();
-  }
-}
-
-function mettreAJourAffichageNomsSondes() {
-  cardEls.forEach((card, idx) => {
-    const labelEl = card.querySelector('.card-label');
-    if (labelEl) labelEl.textContent = getSondeLabel(idx);
-  });
-  const legendItems = legendEl.querySelectorAll('.legend-item');
-  legendItems.forEach((item, idx) => {
-    if (item) item.lastChild.textContent = getSondeLabel(idx);
-  });
-  const statLabels = document.querySelectorAll('.stat-box .stat-label');
-  statLabels.forEach((labelEl, idx) => {
-    const group = Math.floor(idx / 3);
-    const suffix = idx % 3 === 0 ? 'Min' : idx % 3 === 1 ? 'Max' : 'Moy';
-    if (labelEl) labelEl.textContent = `${getSondeLabel(group)} — ${suffix}`;
-  });
-}
-
-let fenetreSec = 30;
-const donnees = Array.from({length: NB_SONDES}, () => []);
-
-const cardsEl = document.getElementById('cards');
-const cardEls = [];
-const totemSensors = document.querySelectorAll(".sensor");
-
-function initTotemSensors() {
-  loadTotemPositions();
-
-  totemSensors.forEach(sensor => {
-    sensor.addEventListener("mousedown", function (e) {
-      if (e.button !== 0) return;
-
-      function move(ev) {
-        const rect = document.getElementById("totem-container").getBoundingClientRect();
-
-        let x = ((ev.clientX - rect.left) / rect.width) * 100;
-        let y = ((ev.clientY - rect.top) / rect.height) * 100;
-
-        if (x < 0) x = 0; if (x > 100) x = 100;
-        if (y < 0) y = 0; if (y > 100) y = 100;
-
-        sensor.style.left = x + "%";
-        sensor.style.top = y + "%";
-      }
-
-      document.addEventListener("mousemove", move);
-
-      document.onmouseup = function () {
-        document.removeEventListener("mousemove", move);
-        saveTotemPositions();
-        document.onmouseup = null;
-      };
-    });
-    
-    sensor.addEventListener("touchstart", function (e) {
-      function moveTouch(ev) {
-        const rect = document.getElementById("totem-container").getBoundingClientRect();
-        const touch = ev.touches[0];
-
-        let x = ((touch.clientX - rect.left) / rect.width) * 100;
-        let y = ((touch.clientY - rect.top) / rect.height) * 100;
-
-        if (x < 0) x = 0; if (x > 100) x = 100;
-        if (y < 0) y = 0; if (y > 100) y = 100;
-
-        sensor.style.left = x + "%";
-        sensor.style.top = y + "%";
-      }
-
-      document.addEventListener("touchmove", moveTouch);
-
-      document.ontouchend = function () {
-        document.removeEventListener("touchmove", moveTouch);
-        saveTotemPositions();
-        document.ontouchend = null;
-      };
-    });
-  });
-}
-
-function saveTotemPositions() {
-  let positions = [];
-  totemSensors.forEach(sensor => {
-    positions.push({
-      id: sensor.dataset.id,
-      left: sensor.style.left,
-      top: sensor.style.top
-    });
-  });
-  localStorage.setItem("totem_positions", JSON.stringify(positions));
-}
-
-function loadTotemPositions() {
-  let saved = localStorage.getItem("totem_positions");
-  if (saved) {
-    saved = JSON.parse(saved);
-    saved.forEach(pos => {
-      let sensor = document.querySelector(`[data-id="${pos.id}"]`);
-      if (sensor) {
-        sensor.style.left = pos.left;
-        sensor.style.top = pos.top;
-      }
-    });
-  } else {
-    const defaults = {
-      1:{left:"50%", top:"15%"},
-      2:{left:"50%", top:"32%"},
-      3:{left:"50%", top:"50%"},
-      4:{left:"50%", top:"68%"},
-      5:{left:"50%", top:"85%"}
-    };
-    Object.keys(defaults).forEach(id => {
-      let sensor = document.querySelector(`[data-id="${id}"]`);
-      if (sensor) {
-        sensor.style.left = defaults[id].left;
-        sensor.style.top = defaults[id].top;
-      }
-    });
-  }
-}
-
-function updateTotemTemp(idx, temp) {
-  const el = document.getElementById(`totem-temp-${idx}`);
-  if (el) el.textContent = temp.toFixed(2) + " °C";
-}
-
-for (let i = 0; i < NB_SONDES; i++) {
-  const div = document.createElement('div');
-  div.className = 'card';
-  div.style.setProperty('--color', COULEURS[i]);
-  div.innerHTML = `<div class="card-label">${getSondeLabel(i)}</div><div class="card-temp" id="temp-${i}">--<span class="card-unit">°C</span></div><div class="card-status" id="age-${i}">En attente...</div>`;
-  cardsEl.appendChild(div);
-  cardEls.push(div);
-}
-
-const divMeteo = document.createElement('div');
-divMeteo.className = 'card card-meteo';
-divMeteo.style.setProperty('--color', '#ffeb3b'); 
-divMeteo.innerHTML = `<div class="card-label" id="meteo-ville">Extérieur (Météo)</div><div class="card-temp" id="meteo-temp">--<span class="card-unit">°C</span></div><div class="card-status" id="meteo-status">Recherche localisation...</div>`;
-cardsEl.appendChild(divMeteo);
-
-const legendEl = document.getElementById('legend');
-for (let i = 0; i < NB_SONDES; i++) {
-  legendEl.innerHTML += `<div class="legend-item"><div class="legend-dot" style="background:${COULEURS[i]}"></div>${getSondeLabel(i)}</div>`;
-}
-
-const statsEl = document.getElementById('stats');
-for (let i = 0; i < NB_SONDES; i++) {
-  statsEl.innerHTML += `
-    <div class="stat-box"><div class="stat-label" style="color:${COULEURS[i]}">${getSondeLabel(i)} — Min</div><div class="stat-value" id="min-${i}" style="color:${COULEURS[i]}">--</div></div>
-    <div class="stat-box"><div class="stat-label" style="color:${COULEURS[i]}">${getSondeLabel(i)} — Max</div><div class="stat-value" id="max-${i}" style="color:${COULEURS[i]}">--</div></div>
-    <div class="stat-box"><div class="stat-label" style="color:${COULEURS[i]}">${getSondeLabel(i)} — Moy</div><div class="stat-value" id="moy-${i}" style="color:${COULEURS[i]}">--</div></div>`;
-}
-
-const ctx = document.getElementById('tempChart').getContext('2d');
-const datasets = COULEURS.slice(0, NB_SONDES).map((c, i) => ({
-  label: NOMS[i], data: [], borderColor: c, backgroundColor: c + '18', borderWidth: 2, pointRadius: 2, pointHoverRadius: 5, tension: 0.3, fill: false,
-}));
-
-const chart = new Chart(ctx, {
-  type: 'line',
-  data: { datasets },
-  options: {
-    animation: false, responsive: true,
-    interaction: { mode: 'index', intersect: false },
-    scales: {
-      x: { type: 'time', time: { tooltipFormat: 'HH:mm:ss', displayFormats: { second: 'HH:mm:ss', minute: 'HH:mm', hour: 'HH:mm', day: 'DD/MM HH:mm' } }, ticks: { color: '#666', maxTicksLimit: 8 }, grid: { color: '#1e2130' } },
-      y: { ticks: { color: '#666', callback: v => v.toFixed(1) + ' °C' }, grid: { color: '#1e2130' } }
-    },
-    plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a1d27', borderColor: '#2a2d3a', borderWidth: 1, titleColor: '#aaa', bodyColor: '#fff', callbacks: { label: ctx => ` ${ctx.dataset.label} : ${ctx.parsed.y.toFixed(2)} °C` } } }
-  }
-});
-
-function rafraichirGraphique() {
-  const maintenant = new Date();
-  const limiteDebut = new Date(maintenant - fenetreSec * 1000);
-
-  for (let i = 0; i < NB_SONDES; i++) {
-    const ptsAffiches = donnees[i].filter(p => p.t >= limiteDebut);
-    chart.data.datasets[i].data = ptsAffiches.map(p => ({ x: p.t, y: p.v }));
-    donnees[i] = donnees[i].filter(p => p.t >= new Date(maintenant - 86400 * 1000));
-
-    if (ptsAffiches.length > 0) {
-      const vals = ptsAffiches.map(p => p.v);
-      document.getElementById(`min-${i}`).textContent = Math.min(...vals).toFixed(1) + ' °C';
-      document.getElementById(`max-${i}`).textContent = Math.max(...vals).toFixed(1) + ' °C';
-      document.getElementById(`moy-${i}`).textContent = (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) + ' °C';
-    }
-  }
-  chart.update('none');
-}
-setInterval(rafraichirGraphique, 1000);
-
-document.getElementById('time-btns').addEventListener('click', e => {
-  if (!e.target.dataset.s) return;
-  fenetreSec = parseInt(e.target.dataset.s);
-  document.querySelectorAll('#time-btns button').forEach(b => b.classList.remove('active'));
-  e.target.classList.add('active');
-});
-
-function demarrerMQTT() {
-  const clientId = 'dashboard_' + Math.random().toString(16).slice(2, 8);
-  clientMQTT = mqtt.connect(`wss://${MQTT_HOST}:${MQTT_PORT}/mqtt`, { clientId, clean: true, reconnectPeriod: 3000, connectTimeout: 10000 });
-
-  clientMQTT.on('connect', () => {
-    document.getElementById('dot').classList.add('connected');
-    document.getElementById('status-text').textContent = 'Connecté à ' + MQTT_HOST;
-    for (let i = 0; i < NB_SONDES; i++) clientMQTT.subscribe(`${TOPIC_ROOT}/${NOMS[i]}`);
-    clientMQTT.subscribe("temperatures/ventilateurs");
-  });
-
-  clientMQTT.on('disconnect', () => {
-    document.getElementById('dot').classList.remove('connected');
-    document.getElementById('status-text').textContent = 'Déconnecté — reconnexion...';
-  });
-
-  clientMQTT.on('message', (topic, message) => {
-    try {
-      const data = JSON.parse(message.toString());
-      
-      if (topic === "temperatures/ventilateurs") {
-        document.getElementById("status-venti-mode").textContent = data.mode || "AUTO";
-        document.getElementById("status-venti-mode").style.color = data.mode === "MANU" ? "#ffb74d" : "#4f4";
-        document.getElementById("status-venti-pwm").textContent = data.pwm_pct + " %";
-        document.getElementById("status-venti-tmax").textContent = data.temp_max.toFixed(1) + " °C";
-        return;
-      }
-
-      const idx = NOMS.indexOf(data.nom);
-      const temp = parseFloat(data.temp);
-      const now = new Date();
-      if (idx === -1 || isNaN(temp)) return;
-
-      donnees[idx].push({ t: now, v: temp });
-      ajouterAuLog(idx, temp, now);
-      document.getElementById(`temp-${idx}`).innerHTML = temp.toFixed(2) + '<span class="card-unit">°C</span>';
-      
-      updateTotemTemp(idx, temp);
-      
-      document.getElementById(`age-${idx}`).textContent = 'Mis à jour ' + now.toLocaleTimeString('fr-FR');
-      cardEls[idx].classList.add('active');
-    } catch(e) { }
-  });
-}
-
-async function recupererMeteo() {
-  try {
-    document.getElementById('meteo-ville').textContent = `Extérieur (${villeActuelle})`;
-    document.getElementById('meteo-status').textContent = "Récupération météo...";
-    const resMeteo = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latActuelle}&longitude=${lonActuelle}&current_weather=true`);
-    if (!resMeteo.ok) throw new Error("Erreur API météo");
-    const DonneesMeteo = await resMeteo.json();
-    document.getElementById('meteo-temp').innerHTML = `${DonneesMeteo.current_weather.temperature.toFixed(1)}<span class="card-unit">°C</span>`;
-    document.getElementById('meteo-status').textContent = `Mis à jour à ${new Date().toLocaleTimeString('fr-FR')}`;
-    divMeteo.classList.add('active');
-  } catch (error) {
-    document.getElementById('meteo-status').textContent = "Erreur météo";
-  }
-}
-
-async function geolocalisationAutomatique() {
-  try {
-    document.getElementById('meteo-status').textContent = "Localisation par IP...";
-    const resIp = await fetch('https://ipapi.co/json/');
-    if (resIp.ok) {
-      const DonneesIp = await resIp.json();
-      if (DonneesIp && !DonneesIp.error) {
-        latActuelle = DonneesIp.latitude; lonActuelle = DonneesIp.longitude; villeActuelle = DonneesIp.city;
-      }
-    }
-  } catch (error) {}
-  recupererMeteo();
-}
-
-async function chercherVilleManuelle() {
-  const saisie = document.getElementById('input-ville').value.trim();
-  if (saisie === "") return;
-  document.getElementById('meteo-status').textContent = `Recherche de ${saisie}...`;
-  try {
-    const resGeocode = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(saisie)}&count=1&language=fr-FR`);
-    const DonneesGeo = await resGeocode.json();
-    if (DonneesGeo.results && DonneesGeo.results.length > 0) {
-      const cible = DonneesGeo.results[0];
-      latActuelle = cible.latitude; lonActuelle = cible.longitude; villeActuelle = cible.name;
-      document.getElementById('input-ville').value = "";
-      recupererMeteo();
-    } else {
-      document.getElementById('meteo-status').textContent = "Ville introuvable";
-    }
-  } catch (error) {
-    document.getElementById('meteo-status').textContent = "Erreur de recherche";
-  }
-}
-
-initTotemSensors();
-initialiserProfils();
-geolocalisationAutomatique();
-setInterval(recupererMeteo, 900000);
-demarrerMQTT();
-</script>
 </body>
 </html>
