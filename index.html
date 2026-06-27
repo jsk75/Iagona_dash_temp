@@ -26,7 +26,8 @@
 
 #totem-container {
   position: relative;
-  width: 420px;
+  width: 100%;
+  max-width: 420px;
   margin: auto;
 }
 
@@ -52,14 +53,17 @@
 
 .sensor-label {
   position: absolute;
-  left: 28px;
+  left: 24px;
   top: -8px;
-  background: rgba(0,0,0,0.85);
-  color: white;
-  padding: 5px 9px;
-  border-radius: 8px;
-  font-size: 12px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #ffffff;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
   white-space: nowrap;
+  border: 1px solid #3a3d4a;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
 }
 
 .s1 .sensor-dot { background: #4fc3f7; }
@@ -71,7 +75,7 @@
 
     body {
       font-family: 'Segoe UI', Arial, sans-serif;
-      background: #f2f2f7;
+      background: #0f1117;
       color: #e0e0e0;
       min-height: 100vh;
       padding: 20px;
@@ -90,7 +94,7 @@
       margin-bottom: 10px;
     }
     .top-logo {
-      max-height: 80px; /* Ajustez la hauteur selon vos besoins */
+      max-height: 80px;
       width: auto;
     }
 
@@ -252,7 +256,7 @@
     }
 
     .card {
-      background: #f2f2f7;
+      background: #1a1d27;
       border: 1px solid #2a2d3a;
       border-radius: 12px;
       padding: 18px 28px;
@@ -354,9 +358,8 @@
 
 <div class="main-content" id="main-content">
   
-  <!-- ── AJOUT DU LOGO ICI ── -->
   <div class="logo-container">
-    <img src="iagona-footer.svg" alt="Logo Iagona" class="top-logo">
+    <img src="iagona red.png" alt="Logo Iagona" class="top-logo">
   </div>
 
   <h1> Temp. board IAGONA</h1>
@@ -415,6 +418,9 @@
       <button class="export-btn" id="export-btn" onclick="exporterExcel()" disabled>Export</button>
     </div>
   </div>
+
+  <div class="sidebar-section" style="display:none;">
+     </div>
 
   <div class="log-table-wrap">
     <div class="log-table-title">📋 Dernières mesures enregistrées</div>
@@ -539,13 +545,19 @@ function initTotemSensors() {
   loadTotemPositions();
 
   totemSensors.forEach(sensor => {
-    sensor.addEventListener("mousedown", function () {
+    sensor.addEventListener("mousedown", function (e) {
+      // Ignorer si le clic n'est pas le clic gauche principal
+      if (e.button !== 0) return;
 
-      function move(e) {
+      function move(ev) {
         const rect = document.getElementById("totem-container").getBoundingClientRect();
 
-        let x = ((e.clientX - rect.left) / rect.width) * 100;
-        let y = ((e.clientY - rect.top) / rect.height) * 100;
+        let x = ((ev.clientX - rect.left) / rect.width) * 100;
+        let y = ((ev.clientY - rect.top) / rect.height) * 100;
+
+        // Limiter pour ne pas sortir du cadre
+        if (x < 0) x = 0; if (x > 100) x = 100;
+        if (y < 0) y = 0; if (y > 100) y = 100;
 
         sensor.style.left = x + "%";
         sensor.style.top = y + "%";
@@ -559,12 +571,36 @@ function initTotemSensors() {
         document.onmouseup = null;
       };
     });
+    
+    // Support tactile pour smartphones
+    sensor.addEventListener("touchstart", function (e) {
+      function moveTouch(ev) {
+        const rect = document.getElementById("totem-container").getBoundingClientRect();
+        const touch = ev.touches[0];
+
+        let x = ((touch.clientX - rect.left) / rect.width) * 100;
+        let y = ((touch.clientY - rect.top) / rect.height) * 100;
+
+        if (x < 0) x = 0; if (x > 100) x = 100;
+        if (y < 0) y = 0; if (y > 100) y = 100;
+
+        sensor.style.left = x + "%";
+        sensor.style.top = y + "%";
+      }
+
+      document.addEventListener("touchmove", moveTouch);
+
+      document.ontouchend = function () {
+        document.removeEventListener("touchmove", moveTouch);
+        saveTotemPositions();
+        document.ontouchend = null;
+      };
+    });
   });
 }
 
 function saveTotemPositions() {
   let positions = [];
-
   totemSensors.forEach(sensor => {
     positions.push({
       id: sensor.dataset.id,
@@ -572,43 +608,41 @@ function saveTotemPositions() {
       top: sensor.style.top
     });
   });
-
   localStorage.setItem("totem_positions", JSON.stringify(positions));
 }
 
 function loadTotemPositions() {
   let saved = localStorage.getItem("totem_positions");
-
   if (saved) {
     saved = JSON.parse(saved);
-
     saved.forEach(pos => {
       let sensor = document.querySelector(`[data-id="${pos.id}"]`);
-      sensor.style.left = pos.left;
-      sensor.style.top = pos.top;
+      if (sensor) {
+        sensor.style.left = pos.left;
+        sensor.style.top = pos.top;
+      }
     });
-
   } else {
-
     const defaults = {
-      1:{left:"52%", top:"12%"},
-      2:{left:"58%", top:"32%"},
-      3:{left:"55%", top:"52%"},
-      4:{left:"58%", top:"72%"},
-      5:{left:"54%", top:"89%"}
+      1:{left:"50%", top:"15%"},
+      2:{left:"50%", top:"32%"},
+      3:{left:"50%", top:"50%"},
+      4:{left:"50%", top:"68%"},
+      5:{left:"50%", top:"85%"}
     };
-
     Object.keys(defaults).forEach(id => {
       let sensor = document.querySelector(`[data-id="${id}"]`);
-      sensor.style.left = defaults[id].left;
-      sensor.style.top = defaults[id].top;
+      if (sensor) {
+        sensor.style.left = defaults[id].left;
+        sensor.style.top = defaults[id].top;
+      }
     });
   }
 }
 
 function updateTotemTemp(idx, temp) {
-  document.getElementById(`totem-temp-${idx}`).textContent =
-    temp.toFixed(2) + " °C";
+  const el = document.getElementById(`totem-temp-${idx}`);
+  if (el) el.textContent = temp.toFixed(2) + " °C";
 }
 
 for (let i = 0; i < NB_SONDES; i++) {
@@ -693,19 +727,18 @@ function demarrerMQTT() {
     document.getElementById('dot').classList.add('connected');
     document.getElementById('status-text').textContent = 'Connecté à ' + MQTT_HOST;
     for (let i = 0; i < NB_SONDES; i++) clientMQTT.subscribe(`${TOPIC_ROOT}/${NOMS[i]}`);
-    clientMQTT.subscribe("temperatures/ventilateurs"); // 👈 Écoute le retour d'état de l'ESP32
+    clientMQTT.subscribe("temperatures/ventilateurs");
   });
 
   clientMQTT.on('disconnect', () => {
     document.getElementById('dot').classList.remove('connected');
-    document.getElementById('status-text').textContent = 'Déconnecté — reconnexion...';
+    document.getElementById('status-text').textContent = 'Décontacté — reconnexion...';
   });
 
   clientMQTT.on('message', (topic, message) => {
     try {
       const data = JSON.parse(message.toString());
       
-      // ── AJOUT : Si c'est le statut global du ventilateur renvoyé par l'ESP32 ──
       if (topic === "temperatures/ventilateurs") {
         document.getElementById("status-venti-mode").textContent = data.mode || "AUTO";
         document.getElementById("status-venti-mode").style.color = data.mode === "MANU" ? "#ffb74d" : "#4f4";
@@ -714,7 +747,6 @@ function demarrerMQTT() {
         return;
       }
 
-      // Traitement normal des sondes de températures
       const idx = NOMS.indexOf(data.nom);
       const temp = parseFloat(data.temp);
       const now = new Date();
@@ -723,7 +755,10 @@ function demarrerMQTT() {
       donnees[idx].push({ t: now, v: temp });
       ajouterAuLog(data.nom, temp, now);
       document.getElementById(`temp-${idx}`).innerHTML = temp.toFixed(2) + '<span class="card-unit">°C</span>';
+      
+      // Mettre à jour la température sur l'image du totem
       updateTotemTemp(idx, temp);
+      
       document.getElementById(`age-${idx}`).textContent = 'Mis à jour ' + now.toLocaleTimeString('fr-FR');
       cardEls[idx].classList.add('active');
     } catch(e) { }
@@ -748,11 +783,11 @@ async function recupererMeteo() {
 async function geolocalisationAutomatique() {
   try {
     document.getElementById('meteo-status').textContent = "Localisation par IP...";
-    const resIp = await fetch('http://ip-api.com/json/');
+    const resIp = await fetch('https://ipapi.co/json/'); // Utilisation de HTTPS pour GitHub Pages
     if (resIp.ok) {
       const DonneesIp = await resIp.json();
-      if (DonneesIp && DonneesIp.status === "success") {
-        latActuelle = DonneesIp.lat; lonActuelle = DonneesIp.lon; villeActuelle = DonneesIp.city;
+      if (DonneesIp && !DonneesIp.error) {
+        latActuelle = DonneesIp.latitude; lonActuelle = DonneesIp.longitude; villeActuelle = DonneesIp.city;
       }
     }
   } catch (error) {}
@@ -779,6 +814,8 @@ async function chercherVilleManuelle() {
   }
 }
 
+// Initialisations au chargement
+initTotemSensors();
 geolocalisationAutomatique();
 setInterval(recupererMeteo, 900000);
 demarrerMQTT();
