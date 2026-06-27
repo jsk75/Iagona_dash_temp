@@ -73,8 +73,20 @@ if (usePg) {
 app.use(cors());
 app.use(express.json());
 
-// Content Security Policy: allow self and the CDNs/resources used by the frontend
-const CSP = "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; connect-src 'self' wss: https:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; font-src 'self' data:;";
+// Content Security Policy: allow self, images, CDN scripts and inline scripts/styles for now.
+// Short-term: include 'unsafe-inline' to avoid blocking existing inline <script> blocks.
+// Longer-term: remove 'unsafe-inline' and use nonces or script hashes, or move inline scripts to external files.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://cdn.jsdelivr.net/npm",
+  "connect-src 'self' wss: wss://* https:",
+  "img-src 'self' data: https:",
+  "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://fonts.googleapis.com",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "base-uri 'self'"
+].join('; ');
 app.use((req, res, next) => {
   res.setHeader('Content-Security-Policy', CSP);
   next();
