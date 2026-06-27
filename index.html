@@ -73,6 +73,11 @@
 .s5 .sensor-dot { background: #e57373; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    .status-bar {
+      text-align: center;
+      margin-bottom: 16px;
+    }
+
     body {
       font-family: 'Segoe UI', Arial, sans-serif;
       background: #0f1117;
@@ -467,23 +472,23 @@
     <div class="rename-list" id="rename-list">
       <div class="rename-row">
         <label for="sonde-name-0">Sonde 1</label>
-        <input id="sonde-name-0" type="text" placeholder="Nom personnalisé" oninput="changerNomSonde(0, this.value)">
+        <input id="sonde-name-0" type="text" placeholder="Nom personnalisé">
       </div>
       <div class="rename-row">
         <label for="sonde-name-1">Sonde 2</label>
-        <input id="sonde-name-1" type="text" placeholder="Nom personnalisé" oninput="changerNomSonde(1, this.value)">
+        <input id="sonde-name-1" type="text" placeholder="Nom personnalisé">
       </div>
       <div class="rename-row">
         <label for="sonde-name-2">Sonde 3</label>
-        <input id="sonde-name-2" type="text" placeholder="Nom personnalisé" oninput="changerNomSonde(2, this.value)">
+        <input id="sonde-name-2" type="text" placeholder="Nom personnalisé">
       </div>
       <div class="rename-row">
         <label for="sonde-name-3">Sonde 4</label>
-        <input id="sonde-name-3" type="text" placeholder="Nom personnalisé" oninput="changerNomSonde(3, this.value)">
+        <input id="sonde-name-3" type="text" placeholder="Nom personnalisé">
       </div>
       <div class="rename-row">
         <label for="sonde-name-4">Sonde 5</label>
-        <input id="sonde-name-4" type="text" placeholder="Nom personnalisé" oninput="changerNomSonde(4, this.value)">
+        <input id="sonde-name-4" type="text" placeholder="Nom personnalisé">
       </div>
     </div>
   </div>
@@ -503,19 +508,19 @@
       </div>
     </div>
     
-    <button class="burger-btn" onclick="toggleSidebar(true)">☰</button>
+    <button class="burger-btn">☰</button>
   </div>
 
   <p class="subtitle">Monitorage multi-point — En temps réel </p>
 
-  <div style="text-align:center; margin-bottom:16px;">
+  <div class="status-bar">
     <span class="status-dot" id="dot"></span>
     <span id="status-text">Connexion MQTT...</span>
   </div>
 
   <div class="search-container">
-    <input type="text" id="input-ville" class="search-input" placeholder="Changer de ville (ex: Lyon, Marseille...)" onkeydown="if(event.key === 'Enter') chercherVilleManuelle()">
-    <button class="search-btn" onclick="chercherVilleManuelle()">Rechercher</button>
+    <input type="text" id="input-ville" class="search-input" placeholder="Changer de ville (ex: Lyon, Marseille...)">
+    <button class="search-btn">Rechercher</button>
   </div>
 
   <div class="cards" id="cards"></div>
@@ -557,8 +562,8 @@
       <span id="log-count">0</span> mesures enregistrées depuis le démarrage
     </div>
     <div style="display:flex;gap:8px">
-      <button class="clear-btn" onclick="viderLog()">🗑 Vider le log</button>
-      <button class="export-btn" id="export-btn" onclick="exporterExcel()" disabled>Export</button>
+      <button class="clear-btn">🗑 Vider le log</button>
+      <button class="export-btn" id="export-btn" disabled>Export</button>
     </div>
   </div>
 

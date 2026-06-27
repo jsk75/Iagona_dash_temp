@@ -72,8 +72,10 @@ if (usePg) {
 
 app.use(cors());
 app.use(express.json());
+app.use(express.static(path.join(__dirname)));
+app.get('/favicon.ico', (req, res) => res.status(204).end());
 
-// Content Security Policy: allow self, images, CDN scripts and inline scripts/styles for now.
+// Content Security Policy: allow self, images, CDN scripts and trusted inline styles for now.
 // Short-term: include 'unsafe-inline' to avoid blocking existing inline <script> blocks.
 // Longer-term: remove 'unsafe-inline' and use nonces or script hashes, or move inline scripts to external files.
 const CSP = [
@@ -81,7 +83,7 @@ const CSP = [
   "script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://cdn.jsdelivr.net/npm",
   "connect-src 'self' wss: wss://* https:",
   "img-src 'self' data: https:",
-  "style-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://fonts.googleapis.com",
+  "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "object-src 'none'",
   "frame-ancestors 'none'",
