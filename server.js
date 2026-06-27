@@ -73,6 +73,13 @@ if (usePg) {
 app.use(cors());
 app.use(express.json());
 
+// Content Security Policy: allow self and the CDNs/resources used by the frontend
+const CSP = "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; connect-src 'self' wss: https:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; font-src 'self' data:;";
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', CSP);
+  next();
+});
+
 function requireApiToken(req, res, next) {
   const token = process.env.API_TOKEN;
   if (!token) return next(); // no token configured -> open
