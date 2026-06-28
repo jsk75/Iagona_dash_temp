@@ -5,6 +5,7 @@ const { Client: PgClient } = require('pg');
 const mqtt = require('mqtt');
 const path = require('path');
 const fs = require('fs');
+const ExcelJS = require('exceljs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -59,7 +60,25 @@ async function initPg() {
     environment TEXT,
     color TEXT,
     updatedAt TEXT
-  `);
+  )`);
+  await pgClient.query(`CREATE TABLE IF NOT EXISTS app_config (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updatedAt TEXT
+  )`);
+  await pgClient.query(`CREATE TABLE IF NOT EXISTS fan_events (
+    id SERIAL PRIMARY KEY,
+    fanGroup TEXT,
+    fanIndex INTEGER,
+    fanLabel TEXT,
+    eventType TEXT,
+    previousValue TEXT,
+    nextValue TEXT,
+    date TEXT,
+    heure TEXT,
+    ts TEXT,
+    createdAt TEXT
+  )`);
 }
 
 // Initialize sqlite tables
@@ -92,6 +111,24 @@ sqliteDb.serialize(() => {
     color TEXT,
     updatedAt TEXT
   )`, (err) => { if (err) console.error('SQLite CREATE TABLE totem_specs error', err); });
+  sqliteDb.run(`CREATE TABLE IF NOT EXISTS app_config (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updatedAt TEXT
+  )`, (err) => { if (err) console.error('SQLite CREATE TABLE app_config error', err); });
+  sqliteDb.run(`CREATE TABLE IF NOT EXISTS fan_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fanGroup TEXT,
+    fanIndex INTEGER,
+    fanLabel TEXT,
+    eventType TEXT,
+    previousValue TEXT,
+    nextValue TEXT,
+    date TEXT,
+    heure TEXT,
+    ts TEXT,
+    createdAt TEXT
+  )`, (err) => { if (err) console.error('SQLite CREATE TABLE fan_events error', err); });
 });
 
 // Start PG if configured
@@ -100,7 +137,7 @@ if (usePg) {
 }
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));
 app.use(express.static(path.join(__dirname)));
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 
@@ -162,6 +199,285 @@ function buildLogPayloadFromMqtt(data) {
     ts: now.toISOString(),
     createdAt: now.toISOString()
   };
+}
+
+function linearTrend(values) {
+  if (!Array.isArray(values) || values.length < 2) return 0;
+  const n = values.length;
+  let sumX = 0;
+  let sumY = 0;
+  let sumXY = 0;
+  let sumXX = 0;
+  for (let i = 0; i < n; i++) {
+    const x = i;
+    const y = Number(values[i]) || 0;
+    sumX += x;
+    sumY += y;
+    sumXY += x * y;
+    sumXX += x * x;
+  }
+  const denominator = (n * sumXX) - (sumX * sumX);
+  if (!denominator) return 0;
+  return ((n * sumXY) - (sumX * sumY)) / denominator;
+}
+
+function trendLabel(values) {
+  const slope = linearTrend(values);
+  if (slope > 0.02) return 'Hausse';
+  if (slope < -0.02) return 'Baisse';
+  return 'Stable';
+}
+
+function parseMaybeJson(value, fallback) {
+  try {
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function getAppConfig(key) {
+  if (usePg && pgClient) {
+    const { rows } = await pgClient.query('SELECT key, value, updatedAt FROM app_config WHERE key = $1', [key]);
+    return rows[0] || null;
+  }
+  return await new Promise((resolve, reject) => {
+    sqliteDb.get('SELECT key, value, updatedAt FROM app_config WHERE key = ?', [key], (err, row) => {
+      if (err) return reject(err);
+      resolve(row || null);
+    });
+  });
+}
+
+async function setAppConfig(key, value) {
+  const now = new Date().toISOString();
+  const serialized = JSON.stringify(value);
+  if (usePg && pgClient) {
+    await pgClient.query(
+      `INSERT INTO app_config (key, value, updatedAt) VALUES ($1,$2,$3)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updatedAt = EXCLUDED.updatedAt`,
+      [key, serialized, now]
+    );
+    return { key, value, updatedAt: now };
+  }
+  return await new Promise((resolve, reject) => {
+    sqliteDb.run(
+      `INSERT INTO app_config (key, value, updatedAt) VALUES (?,?,?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt`,
+      [key, serialized, now],
+      function (err) {
+        if (err) return reject(err);
+        resolve({ key, value, updatedAt: now });
+      }
+    );
+  });
+}
+
+async function getAllLogs(limit = 5000) {
+  if (usePg && pgClient) {
+    const { rows } = await pgClient.query('SELECT * FROM logs ORDER BY id ASC LIMIT $1', [limit]);
+    return rows;
+  }
+  return await new Promise((resolve, reject) => {
+    sqliteDb.all('SELECT * FROM logs ORDER BY id ASC LIMIT ?', [limit], (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows || []);
+    });
+  });
+}
+
+async function insertFanEventRecord({ fanGroup, fanIndex, fanLabel, eventType, previousValue, nextValue, date, heure, ts, createdAt }) {
+  const resolvedCreatedAt = createdAt || new Date().toISOString();
+  if (usePg && pgClient) {
+    const { rows } = await pgClient.query(
+      `INSERT INTO fan_events (fanGroup, fanIndex, fanLabel, eventType, previousValue, nextValue, date, heure, ts, createdAt)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [fanGroup || '', fanIndex, fanLabel || '', eventType || '', previousValue || '', nextValue || '', date || '', heure || '', ts || '', resolvedCreatedAt]
+    );
+    return rows[0];
+  }
+
+  return await new Promise((resolve, reject) => {
+    sqliteDb.run(
+      `INSERT INTO fan_events (fanGroup, fanIndex, fanLabel, eventType, previousValue, nextValue, date, heure, ts, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [fanGroup || '', fanIndex, fanLabel || '', eventType || '', previousValue || '', nextValue || '', date || '', heure || '', ts || '', resolvedCreatedAt],
+      function (err) {
+        if (err) return reject(err);
+        resolve({ id: this.lastID, fanGroup, fanIndex, fanLabel, eventType, previousValue, nextValue, date, heure, ts, createdAt: resolvedCreatedAt });
+      }
+    );
+  });
+}
+
+async function getAllFanEvents(limit = 5000) {
+  if (usePg && pgClient) {
+    const { rows } = await pgClient.query('SELECT * FROM fan_events ORDER BY id ASC LIMIT $1', [limit]);
+    return rows;
+  }
+  return await new Promise((resolve, reject) => {
+    sqliteDb.all('SELECT * FROM fan_events ORDER BY id ASC LIMIT ?', [limit], (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows || []);
+    });
+  });
+}
+
+async function buildExcelExportBuffer(payload = {}) {
+  const {
+    chartImageBase64,
+    sensorLabels = SONDE_NAMES.map((name, index) => `Sonde ${index + 1}`),
+    colors = [],
+    specs = null,
+    runtimeConfig = null,
+    exportedAt = new Date().toISOString()
+  } = payload;
+
+  const logs = await getAllLogs();
+  const fanEvents = await getAllFanEvents();
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'GitHub Copilot';
+  workbook.created = new Date();
+
+  const allSheet = workbook.addWorksheet('Toutes sondes');
+  allSheet.columns = [
+    { header: 'Date', key: 'date', width: 14 },
+    { header: 'Heure', key: 'heure', width: 12 },
+    { header: 'Sonde', key: 'sonde', width: 24 },
+    { header: 'Température (°C)', key: 'temp', width: 18 }
+  ];
+  logs.forEach(entry => {
+    const label = sensorLabels[entry.sondeIdx] || `Sonde ${entry.sondeIdx + 1}`;
+    allSheet.addRow({ date: entry.date, heure: entry.heure, sonde: label, temp: entry.temp });
+  });
+
+  const grouped = Array.from({ length: NB_SONDES }, () => []);
+  logs.forEach(entry => {
+    if (typeof entry.sondeIdx === 'number' && entry.sondeIdx >= 0 && entry.sondeIdx < NB_SONDES) {
+      grouped[entry.sondeIdx].push(entry);
+    }
+  });
+
+  grouped.forEach((entries, index) => {
+    if (!entries.length) return;
+    const sheet = workbook.addWorksheet((sensorLabels[index] || `Sonde ${index + 1}`).slice(0, 31));
+    sheet.columns = [
+      { header: 'Date', key: 'date', width: 14 },
+      { header: 'Heure', key: 'heure', width: 12 },
+      { header: 'Température (°C)', key: 'temp', width: 18 }
+    ];
+    entries.forEach(entry => sheet.addRow({ date: entry.date, heure: entry.heure, temp: entry.temp }));
+  });
+
+  const summarySheet = workbook.addWorksheet('Tendances');
+  summarySheet.columns = [
+    { header: 'Sonde', key: 'sonde', width: 24 },
+    { header: 'Min (°C)', key: 'min', width: 14 },
+    { header: 'Max (°C)', key: 'max', width: 14 },
+    { header: 'Moyenne (°C)', key: 'avg', width: 16 },
+    { header: 'Tendance', key: 'trend', width: 14 },
+    { header: 'Pente', key: 'slope', width: 12 }
+  ];
+  grouped.forEach((entries, index) => {
+    if (!entries.length) return;
+    const values = entries.map(entry => Number(entry.temp)).filter(value => !Number.isNaN(value));
+    if (!values.length) return;
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const avg = values.reduce((sum, value) => sum + value, 0) / values.length;
+    const slope = linearTrend(values);
+    summarySheet.addRow({
+      sonde: sensorLabels[index] || `Sonde ${index + 1}`,
+      min,
+      max,
+      avg,
+      trend: trendLabel(values),
+      slope: Number(slope.toFixed(4))
+    });
+  });
+
+  const specsSheet = workbook.addWorksheet('Fiche Totem');
+  specsSheet.columns = [{ width: 24 }, { width: 36 }];
+  const resolvedSpecs = specs || {};
+  const envLabel = { indoor: 'Indoor', outdoor: 'Outdoor' }[resolvedSpecs.environment] || resolvedSpecs.environment || '--';
+  [
+    ['Fiche Totem', ''],
+    ['Nom', resolvedSpecs.name || '--'],
+    ['Exporté le', new Date(exportedAt).toLocaleString('fr-FR')],
+    ['', ''],
+    ['Dimensions', ''],
+    ['Hauteur (mm)', resolvedSpecs.height || '--'],
+    ['Largeur (mm)', resolvedSpecs.width || '--'],
+    ['Profondeur (mm)', resolvedSpecs.depth || '--'],
+    ['', ''],
+    ['Technique', ''],
+    ['Watt à dissiper', resolvedSpecs.watt ? `${resolvedSpecs.watt} W` : '--'],
+    ['Environnement', envLabel],
+    ['Couleur', resolvedSpecs.color || '--']
+  ].forEach(row => specsSheet.addRow(row));
+
+  const configSheet = workbook.addWorksheet('Configuration');
+  configSheet.columns = [{ width: 26 }, { width: 80 }];
+  const resolvedConfig = runtimeConfig || {};
+  configSheet.addRow(['Preset actif', resolvedConfig.activeProfile || 'default']);
+  configSheet.addRow(['Noms sondes', (resolvedConfig.sensorNames || []).join(' | ') || '--']);
+  configSheet.addRow(['Positions sondes', JSON.stringify(resolvedConfig.sensorPositions || [])]);
+  configSheet.addRow(['Configuration ventilateurs', JSON.stringify(resolvedConfig.ventilation || {})]);
+
+  const fanEventsSheet = workbook.addWorksheet('Événements Ventilos');
+  fanEventsSheet.columns = [
+    { header: 'Date', key: 'date', width: 14 },
+    { header: 'Heure', key: 'heure', width: 12 },
+    { header: 'Ventilateur', key: 'fanLabel', width: 20 },
+    { header: 'Groupe', key: 'fanGroup', width: 12 },
+    { header: 'Type', key: 'eventType', width: 18 },
+    { header: 'Avant', key: 'previousValue', width: 16 },
+    { header: 'Après', key: 'nextValue', width: 16 }
+  ];
+  fanEvents.forEach(event => {
+    fanEventsSheet.addRow({
+      date: event.date,
+      heure: event.heure,
+      fanLabel: event.fanlabel || event.fanLabel,
+      fanGroup: event.fangroup || event.fanGroup,
+      eventType: event.eventtype || event.eventType,
+      previousValue: event.previousvalue || event.previousValue,
+      nextValue: event.nextvalue || event.nextValue
+    });
+  });
+
+  const chartSheet = workbook.addWorksheet('Courbes');
+  chartSheet.columns = [{ width: 22 }, { width: 22 }, { width: 22 }];
+  chartSheet.addRow(['Courbes de température', '', '']);
+  chartSheet.addRow(['Exporté le', new Date(exportedAt).toLocaleString('fr-FR'), '']);
+  if (chartImageBase64 && typeof chartImageBase64 === 'string') {
+    const cleaned = chartImageBase64.replace(/^data:image\/png;base64,/, '');
+    const imageId = workbook.addImage({ base64: cleaned, extension: 'png' });
+    chartSheet.addImage(imageId, {
+      tl: { col: 0, row: 3 },
+      ext: { width: 920, height: 420 }
+    });
+  }
+  chartSheet.addRow([]);
+  chartSheet.addRow([]);
+  chartSheet.addRow([]);
+  chartSheet.addRow([]);
+  chartSheet.addRow([]);
+  chartSheet.addRow([]);
+  chartSheet.addRow([]);
+  chartSheet.addRow([]);
+  chartSheet.addRow(['Sonde', 'Couleur', 'Tendance']);
+  grouped.forEach((entries, index) => {
+    if (!entries.length) return;
+    const values = entries.map(entry => Number(entry.temp)).filter(value => !Number.isNaN(value));
+    chartSheet.addRow([
+      sensorLabels[index] || `Sonde ${index + 1}`,
+      colors[index] || '',
+      trendLabel(values)
+    ]);
+  });
+
+  return workbook.xlsx.writeBuffer();
 }
 
 async function insertLogRecord({ sondeIdx, label, temp, date, heure, ts, createdAt }) {
@@ -354,6 +670,26 @@ app.post('/api/totem-specs', requireApiToken, async (req, res) => {
   }
 });
 
+app.get('/api/config/:key', async (req, res) => {
+  try {
+    const entry = await getAppConfig(req.params.key);
+    if (!entry) return res.json({ key: req.params.key, value: null, updatedAt: null });
+    return res.json({ key: entry.key, value: parseMaybeJson(entry.value, null), updatedAt: entry.updatedAt || entry.updatedat || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/config/:key', requireApiToken, async (req, res) => {
+  try {
+    const { value } = req.body || {};
+    const saved = await setAppConfig(req.params.key, value);
+    res.json(saved);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/logs', async (req, res) => {
   const limit = parseInt(req.query.limit, 10) || 200;
   try {
@@ -376,6 +712,80 @@ app.post('/api/logs', requireApiToken, async (req, res) => {
   try {
     const saved = await insertLogRecord({ sondeIdx, label, temp, date, heure, ts, createdAt: new Date().toISOString() });
     return res.json(saved);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/fan-events', async (req, res) => {
+  const limit = parseInt(req.query.limit, 10) || 500;
+  try {
+    if (usePg && pgClient) {
+      const { rows } = await pgClient.query('SELECT * FROM fan_events ORDER BY id DESC LIMIT $1', [limit]);
+      return res.json(rows);
+    }
+    sqliteDb.all('SELECT * FROM fan_events ORDER BY id DESC LIMIT ?', [limit], (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows);
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/fan-events', requireApiToken, async (req, res) => {
+  const { fanGroup, fanIndex, fanLabel, eventType, previousValue, nextValue, date, heure, ts } = req.body || {};
+  if (typeof fanIndex !== 'number' || !eventType) return res.status(400).json({ error: 'Payload invalide' });
+  try {
+    const saved = await insertFanEventRecord({
+      fanGroup,
+      fanIndex,
+      fanLabel,
+      eventType,
+      previousValue,
+      nextValue,
+      date,
+      heure,
+      ts,
+      createdAt: new Date().toISOString()
+    });
+    res.json(saved);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/export/excel', async (req, res) => {
+  try {
+    const specsEntry = await getAppConfig('runtime_state');
+    const runtimeState = specsEntry ? parseMaybeJson(specsEntry.value, {}) : {};
+
+    let resolvedSpecs = {};
+    if (usePg && pgClient) {
+      const { rows } = await pgClient.query('SELECT * FROM totem_specs WHERE id = 1');
+      resolvedSpecs = rows[0] || {};
+    } else {
+      resolvedSpecs = await new Promise((resolve, reject) => {
+        sqliteDb.get('SELECT * FROM totem_specs WHERE id = 1', [], (err, row) => {
+          if (err) return reject(err);
+          resolve(row || {});
+        });
+      });
+    }
+
+    const buffer = await buildExcelExportBuffer({
+      chartImageBase64: req.body && req.body.chartImageBase64,
+      sensorLabels: req.body && req.body.sensorLabels,
+      colors: req.body && req.body.colors,
+      specs: resolvedSpecs,
+      runtimeConfig: runtimeState,
+      exportedAt: req.body && req.body.exportedAt
+    });
+
+    const filename = `temperatures_${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(Buffer.from(buffer));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

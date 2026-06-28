@@ -148,8 +148,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  initialiserProfils();
   initialiserVentilateurs();
+  initialiserProfils();
   chargerSpecsTotem();
   restaurerEtatVentiloTab();
   restaurerEtatAccordions();
@@ -242,50 +242,42 @@ function viderLog() {
 
 function exporterExcel() {
   if (logComplet.length === 0) return;
-  const wb = XLSX.utils.book_new();
-  const dataGlobal = [['Date', 'Heure', 'Sonde', 'Température (°C)']];
-  logComplet.forEach(e => dataGlobal.push([e.date, e.heure, getSondeLabel(e.sondeIdx), e.temp]));
-  const wsGlobal = XLSX.utils.aoa_to_sheet(dataGlobal);
-  wsGlobal['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 18 }];
-  XLSX.utils.book_append_sheet(wb, wsGlobal, 'Toutes sondes');
+  exporterExcelDepuisServeur();
+}
 
-  const mesuresParSonde = Array.from({ length: NB_SONDES }, () => []);
-  logComplet.forEach(e => {
-    if (typeof e.sondeIdx === 'number' && e.sondeIdx >= 0 && e.sondeIdx < NB_SONDES) {
-      mesuresParSonde[e.sondeIdx].push(e);
+async function exporterExcelDepuisServeur() {
+  const payload = {
+    chartImageBase64: captureGraphImage(),
+    sensorLabels: Array.from({ length: NB_SONDES }, (_, index) => getSondeLabel(index)),
+    colors: [...COULEURS],
+    exportedAt: new Date().toISOString()
+  };
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/export/excel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      alert('Échec de génération de l’export Excel.');
+      return;
     }
-  });
-  mesuresParSonde.forEach((mesuresSonde, i) => {
-    if (mesuresSonde.length === 0) return;
-    const data = [['Date', 'Heure', 'Température (°C)']];
-    mesuresSonde.forEach(e => data.push([e.date, e.heure, e.temp]));
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    ws['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 18 }];
-    XLSX.utils.book_append_sheet(wb, ws, getSondeLabel(i));
-  });
-
-  // Onglet Fiche Totem avec specs
-  const specs = getSpecsTotemCourants();
-  const envLabel = { indoor: 'Indoor', outdoor: 'Outdoor' }[specs.environment] || specs.environment || '--';
-  const wsSpecs = XLSX.utils.aoa_to_sheet([
-    ['Fiche Totem', ''],
-    ['Nom', specs.name || '--'],
-    ['Exporté le', new Date().toLocaleString('fr-FR')],
-    ['', ''],
-    ['Dimensions', ''],
-    ['Hauteur (mm)', specs.height || '--'],
-    ['Largeur (mm)', specs.width || '--'],
-    ['Profondeur (mm)', specs.depth || '--'],
-    ['', ''],
-    ['Technique', ''],
-    ['Watt à dissiper', specs.watt ? `${specs.watt} W` : '--'],
-    ['Environnement', envLabel],
-    ['Couleur', specs.color || '--'],
-  ]);
-  wsSpecs['!cols'] = [{ wch: 22 }, { wch: 20 }];
-  XLSX.utils.book_append_sheet(wb, wsSpecs, 'Fiche Totem');
-
-  XLSX.writeFile(wb, `temperatures_${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.xlsx`);
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dispo = response.headers.get('Content-Disposition') || '';
+    const match = dispo.match(/filename="([^"]+)"/);
+    link.download = match ? match[1] : `temperatures_${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.warn('Erreur export Excel serveur :', error);
+    alert('Erreur lors de l’export Excel.');
+  }
 }
 
 const MQTT_HOST = 'broker.hivemq.com';
@@ -309,6 +301,7 @@ const TOTEM_IMAGE_LIBRARY_KEY = 'totem_image_library';
 const TOTEM_SELECTED_IMAGE_KEY = 'totem_selected_image';
 const TOTEM_DEFAULT_IMAGE = 'totem-clean.png';
 const VENTILO_STORAGE_KEY = 'ventilo_config';
+const RUNTIME_STATE_CONFIG_KEY = 'runtime_state';
 const VENTILO_COLLAPSED_KEY = 'ventilo_collapsed';
 const VENTILO_TAB_COLLAPSED_KEY = 'ventilo_tab_collapsed';
 const VENTILO_ENTREE_COLLAPSED_KEY = 'ventilo_entree_collapsed';
@@ -322,9 +315,100 @@ let profilsEnregistres = {};
 let profilActuel = 'default';
 let totemImageLibrary = [];
 let totemSelectedImage = TOTEM_DEFAULT_IMAGE;
+let _runtimeStateSaveDebounce = null;
+let dernierEtatVentilos = null;
 
 function getSondeLabel(idx) {
   return SONDE_CUSTOM_NAMES[idx] ? `${SONDE_PREFIX[idx]} - ${SONDE_CUSTOM_NAMES[idx]}` : SONDE_PREFIX[idx];
+}
+
+function getVentilationConfigCourante() {
+  const config = {
+    debit: parseFloat(document.getElementById('ventilo-debit-input')?.value) || 0,
+    entree: [],
+    sortie: []
+  };
+
+  for (let i = 0; i < 8; i++) {
+    const checkbox = document.getElementById(`ventilo-entree-${i}`);
+    const slider = document.getElementById(`ventilo-entree-${i}-speed`);
+    config.entree.push({
+      active: checkbox ? checkbox.checked : false,
+      speed: slider ? parseInt(slider.value) || 50 : 50
+    });
+  }
+
+  for (let i = 0; i < 8; i++) {
+    const checkbox = document.getElementById(`ventilo-sortie-${i}`);
+    const slider = document.getElementById(`ventilo-sortie-${i}-speed`);
+    config.sortie.push({
+      active: checkbox ? checkbox.checked : false,
+      speed: slider ? parseInt(slider.value) || 50 : 50
+    });
+  }
+
+  return config;
+}
+
+function getRuntimeStatePayload() {
+  return {
+    activeProfile: profilActuel,
+    sensorNames: [...SONDE_CUSTOM_NAMES],
+    sensorPositions: getCurrentPositions(),
+    ventilation: getVentilationConfigCourante()
+  };
+}
+
+async function sauvegarderRuntimeStateSurServeur() {
+  return await sendToServer(`/api/config/${encodeURIComponent(RUNTIME_STATE_CONFIG_KEY)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: getRuntimeStatePayload() })
+  });
+}
+
+function planifierSauvegardeRuntimeState() {
+  clearTimeout(_runtimeStateSaveDebounce);
+  _runtimeStateSaveDebounce = setTimeout(() => {
+    sauvegarderRuntimeStateSurServeur();
+  }, 250);
+}
+
+async function chargerRuntimeStateDepuisServeur() {
+  const response = await sendToServer(`/api/config/${encodeURIComponent(RUNTIME_STATE_CONFIG_KEY)}`);
+  if (!response || !response.value) return false;
+  const state = response.value;
+
+  if (Array.isArray(state.sensorNames)) {
+    state.sensorNames.forEach((value, idx) => {
+      if (idx < NB_SONDES) {
+        SONDE_CUSTOM_NAMES[idx] = value || '';
+        const input = document.getElementById(`sonde-name-${idx}`);
+        if (input) input.value = SONDE_CUSTOM_NAMES[idx];
+      }
+    });
+  }
+
+  if (Array.isArray(state.sensorPositions) && state.sensorPositions.length) {
+    applyPositions(state.sensorPositions);
+  }
+
+  if (state.ventilation) {
+    appliquerConfigurationVentilateurs(state.ventilation);
+  }
+
+  if (state.activeProfile) {
+    profilActuel = state.activeProfile;
+    localStorage.setItem(PROFIL_LAST_KEY, state.activeProfile);
+  }
+
+  mettreAJourAffichageNomsSondes();
+  return true;
+}
+
+function captureGraphImage() {
+  const canvas = document.getElementById('tempChart');
+  return canvas ? canvas.toDataURL('image/png', 1.0) : null;
 }
 
 function getDefaultPositions() {
@@ -476,6 +560,70 @@ async function logTempToServer(entry) {
   });
 }
 
+async function logFanEventToServer(event) {
+  await sendToServer('/api/fan-events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(event)
+  });
+}
+
+function getFanLabel(group, index) {
+  return group === 'entree' ? `Ventilateur ${index + 1}` : `Ventilateur ${index + 9}`;
+}
+
+function enregistrerEvenementsVentilateurs(previousConfig, nextConfig) {
+  if (!previousConfig || !nextConfig) return;
+  const now = new Date();
+  const date = now.toLocaleDateString('fr-FR');
+  const heure = now.toLocaleTimeString('fr-FR');
+  const ts = now.toISOString();
+
+  ['entree', 'sortie'].forEach(group => {
+    const previousFans = Array.isArray(previousConfig[group]) ? previousConfig[group] : [];
+    const nextFans = Array.isArray(nextConfig[group]) ? nextConfig[group] : [];
+    const maxLength = Math.max(previousFans.length, nextFans.length);
+
+    for (let i = 0; i < maxLength; i++) {
+      const previousFan = previousFans[i] || { active: false, speed: 50 };
+      const nextFan = nextFans[i] || { active: false, speed: 50 };
+      const fanLabel = getFanLabel(group, i);
+
+      if (!!previousFan.active !== !!nextFan.active) {
+        logFanEventToServer({
+          fanGroup: group,
+          fanIndex: i,
+          fanLabel,
+          eventType: nextFan.active ? 'activation' : 'désactivation',
+          previousValue: previousFan.active ? 'actif' : 'inactif',
+          nextValue: nextFan.active ? 'actif' : 'inactif',
+          date,
+          heure,
+          ts
+        });
+      }
+
+      if (Number(previousFan.speed) !== Number(nextFan.speed)) {
+        logFanEventToServer({
+          fanGroup: group,
+          fanIndex: i,
+          fanLabel,
+          eventType: 'variation_vitesse',
+          previousValue: `${Number(previousFan.speed) || 0}%`,
+          nextValue: `${Number(nextFan.speed) || 0}%`,
+          date,
+          heure,
+          ts
+        });
+      }
+    }
+  });
+}
+
+function clonerConfigVentilation(config) {
+  return JSON.parse(JSON.stringify(config || { debit: 0, entree: [], sortie: [] }));
+}
+
 async function chargerProfilesDepuisServeur() {
   const profiles = await sendToServer('/api/profiles');
   if (!Array.isArray(profiles)) return;
@@ -516,6 +664,7 @@ function changerNomSonde(idx, valeur) {
   if (input) input.value = SONDE_CUSTOM_NAMES[idx];
   sauvegarderNomsSondes();
   mettreAJourAffichageNomsSondes();
+  planifierSauvegardeRuntimeState();
 }
 
 function sauvegarderNomsSondes() {
@@ -599,6 +748,7 @@ function chargerProfil(nom, enregistrerLast = true) {
     applyPositions(getDefaultPositions());
     mettreAJourAffichageNomsSondes();
     if (enregistrerLast) localStorage.setItem(PROFIL_LAST_KEY, 'default');
+    planifierSauvegardeRuntimeState();
     return;
   }
   const profil = profilsEnregistres[nom];
@@ -607,6 +757,7 @@ function chargerProfil(nom, enregistrerLast = true) {
   if (Array.isArray(profil.positions)) applyPositions(profil.positions);
   mettreAJourAffichageNomsSondes();
   if (enregistrerLast) localStorage.setItem(PROFIL_LAST_KEY, nom);
+  planifierSauvegardeRuntimeState();
 }
 
 async function sauvegarderProfil() {
@@ -635,7 +786,12 @@ async function supprimerProfil() {
 
 async function initialiserProfils() {
   chargerProfilesDepuisLocal(); renderProfiles(); await chargerProfilesDepuisServeur(); const last = localStorage.getItem(PROFIL_LAST_KEY);
-  if (last && last !== 'default' && profilsEnregistres[last]) await chargerProfil(last, false); else chargerNomsSondes();
+  const hasLastProfile = !!(last && last !== 'default' && profilsEnregistres[last]);
+  if (hasLastProfile) {
+    await chargerProfil(last, false);
+  }
+  const runtimeLoaded = await chargerRuntimeStateDepuisServeur();
+  if (!runtimeLoaded && !hasLastProfile) chargerNomsSondes();
 }
 
 function mettreAJourAffichageNomsSondes() {
@@ -716,6 +872,7 @@ function saveTotemPositions() {
     positions.push({ id: sensor.dataset.id, left: sensor.style.left, top: sensor.style.top });
   });
   localStorage.setItem("totem_positions", JSON.stringify(positions));
+  planifierSauvegardeRuntimeState();
 }
 
 function loadTotemPositions() {
@@ -1032,32 +1189,53 @@ function chargerConfigVentilateurs() {
   }
 }
 
+function appliquerConfigurationVentilateurs(config) {
+    dernierEtatVentilos = clonerConfigVentilation(getVentilationConfigCourante());
+  if (!config) return;
+
+  if (config.debit !== undefined) {
+    const input = document.getElementById('ventilo-debit-input');
+    if (input) input.value = config.debit;
+  }
+
+  if (Array.isArray(config.entree)) {
+    config.entree.forEach((ventilo, i) => {
+      const checkbox = document.getElementById(`ventilo-entree-${i}`);
+      const slider = document.getElementById(`ventilo-entree-${i}-speed`);
+      if (checkbox) checkbox.checked = !!ventilo.active;
+      if (slider) {
+        slider.value = ventilo.speed || 50;
+        slider.disabled = !(checkbox && checkbox.checked);
+        const display = document.getElementById(`ventilo-entree-${i}-display`);
+        if (display) display.textContent = slider.value;
+      }
+    });
+  }
+
+  if (Array.isArray(config.sortie)) {
+    config.sortie.forEach((ventilo, i) => {
+      const checkbox = document.getElementById(`ventilo-sortie-${i}`);
+      const slider = document.getElementById(`ventilo-sortie-${i}-speed`);
+      if (checkbox) checkbox.checked = !!ventilo.active;
+      if (slider) {
+        slider.value = ventilo.speed || 50;
+        slider.disabled = !(checkbox && checkbox.checked);
+        const display = document.getElementById(`ventilo-sortie-${i}-display`);
+        if (display) display.textContent = slider.value;
+      }
+    });
+  }
+
+  mettreAJourDebitTotal();
+}
+
 function sauvegarderConfigVentilateurs() {
-  const config = {
-    debit: parseFloat(document.getElementById('ventilo-debit-input').value) || 0,
-    entree: [],
-    sortie: []
-  };
-
-  for (let i = 0; i < 8; i++) {
-    const checkbox = document.getElementById(`ventilo-entree-${i}`);
-    const slider = document.getElementById(`ventilo-entree-${i}-speed`);
-    config.entree.push({
-      active: checkbox ? checkbox.checked : false,
-      speed: slider ? parseInt(slider.value) : 50
-    });
-  }
-
-  for (let i = 0; i < 8; i++) {
-    const checkbox = document.getElementById(`ventilo-sortie-${i}`);
-    const slider = document.getElementById(`ventilo-sortie-${i}-speed`);
-    config.sortie.push({
-      active: checkbox ? checkbox.checked : false,
-      speed: slider ? parseInt(slider.value) : 50
-    });
-  }
-
+  const previousConfig = dernierEtatVentilos ? clonerConfigVentilation(dernierEtatVentilos) : null;
+  const config = getVentilationConfigCourante();
   localStorage.setItem(VENTILO_STORAGE_KEY, JSON.stringify(config));
+  enregistrerEvenementsVentilateurs(previousConfig, config);
+  dernierEtatVentilos = clonerConfigVentilation(config);
+  planifierSauvegardeRuntimeState();
 }
 
 function mettreAJourDebitTotal() {
