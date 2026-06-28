@@ -378,6 +378,97 @@
       margin-top: 10px;
     }
 
+    /* Système de ventilation */
+    .debit-input-group {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .debit-input-group label {
+      font-size: 11px;
+      color: #aaa;
+      display: block;
+    }
+    .debit-input-group input {
+      width: 100%;
+      padding: 8px 10px;
+      background: #0f1117;
+      border: 1px solid #2a2d3a;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 13px;
+    }
+    .debit-input-group input:focus {
+      outline: none;
+      border-color: #4fc3f7;
+    }
+    .debit-total-display {
+      background: #0f1117;
+      border: 1px solid #2a2d3a;
+      border-radius: 8px;
+      padding: 10px;
+      margin-top: 10px;
+      text-align: center;
+      font-size: 14px;
+      color: #4fc3f7;
+      font-weight: 600;
+    }
+    .ventilo-group {
+      margin-top: 12px;
+    }
+    .ventilo-group-title {
+      font-size: 11px;
+      color: #888;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+    }
+    .ventilo-items {
+      display: grid;
+      gap: 10px;
+    }
+    .ventilo-item {
+      background: #0f1117;
+      border: 1px solid #2a2d3a;
+      border-radius: 8px;
+      padding: 8px;
+    }
+    .ventilo-item-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .ventilo-item input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      accent-color: #4fc3f7;
+    }
+    .ventilo-item-label {
+      font-size: 12px;
+      color: #aaa;
+      flex: 1;
+    }
+    .ventilo-item input[type="range"] {
+      width: 100%;
+      accent-color: #4fc3f7;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+    .ventilo-item.disabled input[type="range"] {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .ventilo-item-speed {
+      text-align: right;
+      font-size: 11px;
+      color: #666;
+      margin-top: 4px;
+    }
+
     .cards {
       display: flex;
       gap: 14px;
@@ -482,6 +573,27 @@
     <div class="info-row">
       <div class="info-label">Temp Max :</div>
       <div class="info-value" id="status-venti-tmax">-- °C</div>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="section-title">Système de ventilation</div>
+    <div class="debit-input-group">
+      <label for="ventilo-debit-input">Débit ventilateur (m³/h)</label>
+      <input id="ventilo-debit-input" type="number" placeholder="Ex: 100" value="100" min="0" step="1">
+    </div>
+    <div class="debit-total-display">
+      Débit total: <span id="ventilo-debit-total">0</span> m³/h
+    </div>
+
+    <div class="ventilo-group">
+      <div class="ventilo-group-title">Ventilateurs Entrée</div>
+      <div class="ventilo-items" id="ventilo-entree-container"></div>
+    </div>
+
+    <div class="ventilo-group">
+      <div class="ventilo-group-title">Ventilateurs Sortie</div>
+      <div class="ventilo-items" id="ventilo-sortie-container"></div>
     </div>
   </div>
 

@@ -71,10 +71,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (inp) inp.addEventListener('input', (e) => changerNomSonde(i, e.target.value));
   }
 
+  // Système de ventilation
+  const debitInput = document.getElementById('ventilo-debit-input');
+  if (debitInput) {
+    debitInput.addEventListener('input', () => {
+      sauvegarderConfigVentilateurs();
+      mettreAJourDebitTotal();
+    });
+  }
+
   // initialize dynamic parts that expect to run after DOM is ready
   initialiserImagesTotem();
   initTotemSensors();
   initialiserProfils();
+  initialiserVentilateurs();
   geolocalisationAutomatique();
   setInterval(recupererMeteo, 900000);
   demarrerMQTT();
@@ -207,6 +217,7 @@ const PROFIL_LAST_KEY = 'sonde_last_profile';
 const TOTEM_IMAGE_LIBRARY_KEY = 'totem_image_library';
 const TOTEM_SELECTED_IMAGE_KEY = 'totem_selected_image';
 const TOTEM_DEFAULT_IMAGE = 'totem-clean.png';
+const VENTILO_STORAGE_KEY = 'ventilo_config';
 let profilsEnregistres = {};
 let profilActuel = 'default';
 let totemImageLibrary = [];
@@ -787,5 +798,191 @@ async function chercherVilleManuelle() {
     }
   } catch (error) {
     document.getElementById('meteo-status').textContent = "Erreur de recherche";
+  }
+}
+
+// Système de ventilation
+function initialiserVentilateurs() {
+  const entreeContainer = document.getElementById('ventilo-entree-container');
+  const sortieContainer = document.getElementById('ventilo-sortie-container');
+
+  if (entreeContainer) {
+    for (let i = 0; i < 8; i++) {
+      const item = document.createElement('div');
+      item.className = 'ventilo-item';
+      item.id = `ventilo-entree-${i}-item`;
+      item.innerHTML = `
+        <div class="ventilo-item-header">
+          <input type="checkbox" id="ventilo-entree-${i}">
+          <label for="ventilo-entree-${i}" class="ventilo-item-label">Ventilateur ${i + 1}</label>
+        </div>
+        <input type="range" id="ventilo-entree-${i}-speed" min="0" max="100" value="50" disabled>
+        <div class="ventilo-item-speed"><span id="ventilo-entree-${i}-display">50</span>%</div>
+      `;
+      entreeContainer.appendChild(item);
+      
+      const checkbox = document.getElementById(`ventilo-entree-${i}`);
+      const slider = document.getElementById(`ventilo-entree-${i}-speed`);
+      if (checkbox) {
+        checkbox.addEventListener('change', () => {
+          if (slider) slider.disabled = !checkbox.checked;
+          sauvegarderConfigVentilateurs();
+          mettreAJourDebitTotal();
+        });
+      }
+      if (slider) {
+        slider.addEventListener('input', () => {
+          const display = document.getElementById(`ventilo-entree-${i}-display`);
+          if (display) display.textContent = slider.value;
+        });
+        slider.addEventListener('change', () => {
+          sauvegarderConfigVentilateurs();
+          mettreAJourDebitTotal();
+        });
+      }
+    }
+  }
+
+  if (sortieContainer) {
+    for (let i = 0; i < 8; i++) {
+      const item = document.createElement('div');
+      item.className = 'ventilo-item';
+      item.id = `ventilo-sortie-${i}-item`;
+      item.innerHTML = `
+        <div class="ventilo-item-header">
+          <input type="checkbox" id="ventilo-sortie-${i}">
+          <label for="ventilo-sortie-${i}" class="ventilo-item-label">Ventilateur ${i + 9}</label>
+        </div>
+        <input type="range" id="ventilo-sortie-${i}-speed" min="0" max="100" value="50" disabled>
+        <div class="ventilo-item-speed"><span id="ventilo-sortie-${i}-display">50</span>%</div>
+      `;
+      sortieContainer.appendChild(item);
+      
+      const checkbox = document.getElementById(`ventilo-sortie-${i}`);
+      const slider = document.getElementById(`ventilo-sortie-${i}-speed`);
+      if (checkbox) {
+        checkbox.addEventListener('change', () => {
+          if (slider) slider.disabled = !checkbox.checked;
+          sauvegarderConfigVentilateurs();
+          mettreAJourDebitTotal();
+        });
+      }
+      if (slider) {
+        slider.addEventListener('input', () => {
+          const display = document.getElementById(`ventilo-sortie-${i}-display`);
+          if (display) display.textContent = slider.value;
+        });
+        slider.addEventListener('change', () => {
+          sauvegarderConfigVentilateurs();
+          mettreAJourDebitTotal();
+        });
+      }
+    }
+  }
+
+  chargerConfigVentilateurs();
+  mettreAJourDebitTotal();
+}
+
+function chargerConfigVentilateurs() {
+  try {
+    const saved = localStorage.getItem(VENTILO_STORAGE_KEY);
+    if (!saved) return;
+    const config = JSON.parse(saved);
+    
+    if (config.debit) {
+      const input = document.getElementById('ventilo-debit-input');
+      if (input) input.value = config.debit;
+    }
+
+    if (config.entree) {
+      config.entree.forEach((ventilo, i) => {
+        const checkbox = document.getElementById(`ventilo-entree-${i}`);
+        const slider = document.getElementById(`ventilo-entree-${i}-speed`);
+        if (checkbox) {
+          checkbox.checked = ventilo.active || false;
+        }
+        if (slider) {
+          slider.value = ventilo.speed || 50;
+          slider.disabled = !checkbox.checked;
+          const display = document.getElementById(`ventilo-entree-${i}-display`);
+          if (display) display.textContent = slider.value;
+        }
+      });
+    }
+
+    if (config.sortie) {
+      config.sortie.forEach((ventilo, i) => {
+        const checkbox = document.getElementById(`ventilo-sortie-${i}`);
+        const slider = document.getElementById(`ventilo-sortie-${i}-speed`);
+        if (checkbox) {
+          checkbox.checked = ventilo.active || false;
+        }
+        if (slider) {
+          slider.value = ventilo.speed || 50;
+          slider.disabled = !checkbox.checked;
+          const display = document.getElementById(`ventilo-sortie-${i}-display`);
+          if (display) display.textContent = slider.value;
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('Erreur lors du chargement de la config ventilation', e);
+  }
+}
+
+function sauvegarderConfigVentilateurs() {
+  const config = {
+    debit: parseFloat(document.getElementById('ventilo-debit-input').value) || 0,
+    entree: [],
+    sortie: []
+  };
+
+  for (let i = 0; i < 8; i++) {
+    const checkbox = document.getElementById(`ventilo-entree-${i}`);
+    const slider = document.getElementById(`ventilo-entree-${i}-speed`);
+    config.entree.push({
+      active: checkbox ? checkbox.checked : false,
+      speed: slider ? parseInt(slider.value) : 50
+    });
+  }
+
+  for (let i = 0; i < 8; i++) {
+    const checkbox = document.getElementById(`ventilo-sortie-${i}`);
+    const slider = document.getElementById(`ventilo-sortie-${i}-speed`);
+    config.sortie.push({
+      active: checkbox ? checkbox.checked : false,
+      speed: slider ? parseInt(slider.value) : 50
+    });
+  }
+
+  localStorage.setItem(VENTILO_STORAGE_KEY, JSON.stringify(config));
+}
+
+function mettreAJourDebitTotal() {
+  const debit = parseFloat(document.getElementById('ventilo-debit-input').value) || 0;
+  let totalDebit = 0;
+
+  for (let i = 0; i < 8; i++) {
+    const checkbox = document.getElementById(`ventilo-entree-${i}`);
+    const slider = document.getElementById(`ventilo-entree-${i}-speed`);
+    if (checkbox && checkbox.checked && slider) {
+      const speed = parseInt(slider.value) || 50;
+      totalDebit += (debit * speed) / 100;
+    }
+  }
+
+  for (let i = 0; i < 8; i++) {
+    const checkbox = document.getElementById(`ventilo-sortie-${i}`);
+    const slider = document.getElementById(`ventilo-sortie-${i}-speed`);
+    if (checkbox && checkbox.checked && slider) {
+      const speed = parseInt(slider.value) || 50;
+      totalDebit += (debit * speed) / 100;
+    }
+  }
+
+  const displayEl = document.getElementById('ventilo-debit-total');
+  if (displayEl) {
+    displayEl.textContent = totalDebit.toFixed(2);
   }
 }
