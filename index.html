@@ -518,14 +518,40 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 18px;
-      height: 18px;
-      transition: transform 0.3s ease;
-      color: #666;
+      width: 16px;
+      height: 16px;
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      color: #888;
       font-size: 12px;
       margin-right: 8px;
+      position: relative;
     }
-    .ventilo-group-toggle.collapsed { transform: rotate(-90deg); }
+    .ventilo-group-toggle::before {
+      content: '';
+      position: absolute;
+      width: 8px;
+      height: 1.5px;
+      background: currentColor;
+      border-radius: 0.75px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .ventilo-group-toggle::after {
+      content: '';
+      position: absolute;
+      width: 1.5px;
+      height: 8px;
+      background: currentColor;
+      border-radius: 0.75px;
+      opacity: 1;
+      transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .ventilo-group-toggle.collapsed::before {
+      width: 1.5px;
+      height: 8px;
+    }
+    .ventilo-group-toggle.collapsed::after {
+      opacity: 0;
+    }
     .ventilo-group-title {
       font-size: 11px;
       color: #aaa;

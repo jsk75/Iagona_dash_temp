@@ -1130,9 +1130,9 @@ function restaurerEtatVentiloTab() {
 
 function toggleVentiloGroup(group) {
   const container = document.getElementById(`ventilo-${group}-container`);
-  const header = document.querySelector(`[data-ventilo-group="${group}"]`);
-  const toggle = document.querySelector(`[data-ventilo-group="${group}"].ventilo-group-toggle`);
-  if (container && header && toggle) {
+  const header = document.querySelector(`[data-ventilo-group="${group}"].ventilo-group-header`);
+  const toggle = header ? header.querySelector('.ventilo-group-toggle') : null;
+  if (container && toggle) {
     container.classList.toggle('collapsed');
     toggle.classList.toggle('collapsed');
     const key = group === 'entree' ? VENTILO_ENTREE_COLLAPSED_KEY : VENTILO_SORTIE_COLLAPSED_KEY;
@@ -1148,7 +1148,8 @@ function restaurerEtatVentiloGroups() {
       const key = group === 'entree' ? VENTILO_ENTREE_COLLAPSED_KEY : VENTILO_SORTIE_COLLAPSED_KEY;
       const isCollapsed = localStorage.getItem(key) === 'true';
       const container = document.getElementById(`ventilo-${group}-container`);
-      const toggle = document.querySelector(`[data-ventilo-group="${group}"].ventilo-group-toggle`);
+      const header = document.querySelector(`[data-ventilo-group="${group}"].ventilo-group-header`);
+      const toggle = header ? header.querySelector('.ventilo-group-toggle') : null;
       if (container && isCollapsed) {
         container.classList.add('collapsed');
         if (toggle) toggle.classList.add('collapsed');
