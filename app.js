@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const searchBtn = document.querySelector('.search-btn');
   const slider = document.getElementById('slider-pwm');
   const profileSelect = document.getElementById('profile-select');
-  const profileSaveBtn = document.querySelector('.profile-section button');
+  const profileSaveBtn = document.getElementById('profile-save-btn');
   const profileDeleteBtn = document.getElementById('profile-delete-btn');
   const clearBtn = document.querySelector('.clear-btn');
   const exportBtn = document.getElementById('export-btn');
@@ -162,7 +162,9 @@ const MQTT_HOST = 'broker.hivemq.com';
 const MQTT_PORT = 8884;  
 const TOPIC_ROOT = 'temperatures';
 const NB_SONDES = 5;     
-const API_BASE_URL = 'https://iagona-dash-temp-1.onrender.com';
+// When deployed on Render serve frontend and API from the same service.
+// Use an empty string for same-origin API calls (e.g. fetch('/api/...')).
+const API_BASE_URL = '';
 
 const COULEURS = ['#4fc3f7', '#81c784', '#ffb74d', '#ba68c8', '#e57373'];
 const NOMS = ["Sonde1", "Sonde2", "Sonde3", "Sonde4", "Sonde5"];
@@ -177,8 +179,17 @@ function getSondeLabel(idx) {
   return SONDE_CUSTOM_NAMES[idx] ? `${SONDE_PREFIX[idx]} - ${SONDE_CUSTOM_NAMES[idx]}` : SONDE_PREFIX[idx];
 }
 
+function getDefaultPositions() {
+  return [
+    { id: '1', left: '50%', top: '15%' },
+    { id: '2', left: '50%', top: '32%' },
+    { id: '3', left: '50%', top: '50%' },
+    { id: '4', left: '50%', top: '68%' },
+    { id: '5', left: '50%', top: '85%' }
+  ];
+}
+
 async function sendToServer(path, options = {}) {
-  if (!API_BASE_URL) return null;
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, options);
     if (!response.ok) {
@@ -193,7 +204,6 @@ async function sendToServer(path, options = {}) {
 }
 
 async function logTempToServer(entry) {
-  if (!API_BASE_URL) return;
   await sendToServer('/api/logs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -209,7 +219,6 @@ async function logTempToServer(entry) {
 }
 
 async function chargerProfilesDepuisServeur() {
-  if (!API_BASE_URL) return;
   const profiles = await sendToServer('/api/profiles');
   if (!Array.isArray(profiles)) return;
   profiles.forEach(profile => {
@@ -219,7 +228,6 @@ async function chargerProfilesDepuisServeur() {
 }
 
 async function sauvegarderProfilSurServeur(name) {
-  if (!API_BASE_URL) return;
   await sendToServer('/api/profiles', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -228,12 +236,10 @@ async function sauvegarderProfilSurServeur(name) {
 }
 
 async function supprimerProfilSurServeur(name) {
-  if (!API_BASE_URL) return;
   await sendToServer(`/api/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
 }
 
 async function chargerProfilDepuisServeur(name, enregistrerLast = true) {
-  if (!API_BASE_URL) return false;
   const profile = await sendToServer(`/api/profiles/${encodeURIComponent(name)}`);
   if (!profile || !profile.name) return false;
   profilsEnregistres[profile.name] = profile;
@@ -322,6 +328,7 @@ function chargerProfil(nom, enregistrerLast = true) {
   if (nom === 'default') {
     SONDE_CUSTOM_NAMES.fill('');
     document.querySelectorAll('.rename-row input').forEach((input, idx) => input.value = '');
+    applyPositions(getDefaultPositions());
     mettreAJourAffichageNomsSondes();
     if (enregistrerLast) localStorage.setItem(PROFIL_LAST_KEY, 'default');
     return;
@@ -442,8 +449,7 @@ function loadTotemPositions() {
     saved = JSON.parse(saved);
     saved.forEach(pos => { let sensor = document.querySelector(`[data-id="${pos.id}"]`); if (sensor) { sensor.style.left = pos.left; sensor.style.top = pos.top; } });
   } else {
-    const defaults = { 1:{left:"50%", top:"15%"}, 2:{left:"50%", top:"32%"}, 3:{left:"50%", top:"50%"}, 4:{left:"50%", top:"68%"}, 5:{left:"50%", top:"85%"} };
-    Object.keys(defaults).forEach(id => { let sensor = document.querySelector(`[data-id="${id}"]`); if (sensor) { sensor.style.left = defaults[id].left; sensor.style.top = defaults[id].top; } });
+    applyPositions(getDefaultPositions());
   }
 }
 
