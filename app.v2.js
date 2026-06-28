@@ -92,8 +92,17 @@ document.addEventListener('DOMContentLoaded', () => {
     ventiloTabToggle.addEventListener('click', () => toggleVentiloTab());
   }
 
+  // Toggle groups ventilateurs entrée/sortie
+  document.querySelectorAll('.ventilo-group-header').forEach(header => {
+    header.addEventListener('click', (e) => {
+      const group = e.currentTarget.dataset.ventiloGroup;
+      if (group) toggleVentiloGroup(group);
+    });
+  });
+
   // Spécifications du totem
   const specFields = [
+    'totem-spec-name',
     'totem-spec-height',
     'totem-spec-width',
     'totem-spec-depth',
@@ -112,10 +121,30 @@ document.addEventListener('DOMContentLoaded', () => {
   // initialize dynamic parts that expect to run after DOM is ready
   initialiserImagesTotem();
   initTotemSensors();
+  
+  // Hover sur sensors pour afficher nom de la sonde
+  document.querySelectorAll('.sensor').forEach((sensor, idx) => {
+    sensor.addEventListener('mouseenter', () => {
+      const label = sensor.querySelector('.sensor-label');
+      if (label) {
+        label.textContent = getSondeLabel(idx);
+      }
+    });
+    sensor.addEventListener('mouseleave', () => {
+      const label = sensor.querySelector('.sensor-label');
+      const tempId = `totem-temp-${idx}`;
+      const tempEl = document.getElementById(tempId);
+      if (label && tempEl) {
+        label.textContent = tempEl.textContent;
+      }
+    });
+  });
+
   initialiserProfils();
   initialiserVentilateurs();
   chargerSpecsTotem();
   restaurerEtatVentiloTab();
+  restaurerEtatVentiloGroups();
   geolocalisationAutomatique();
   setInterval(recupererMeteo, 900000);
   demarrerMQTT();
@@ -231,6 +260,7 @@ function exporterExcel() {
   const envLabel = { indoor: 'Indoor', outdoor: 'Outdoor' }[specs.environment] || specs.environment || '--';
   const wsSpecs = XLSX.utils.aoa_to_sheet([
     ['Fiche Totem', ''],
+    ['Nom', specs.name || '--'],
     ['Exporté le', new Date().toLocaleString('fr-FR')],
     ['', ''],
     ['Dimensions', ''],
@@ -272,6 +302,8 @@ const TOTEM_DEFAULT_IMAGE = 'totem-clean.png';
 const VENTILO_STORAGE_KEY = 'ventilo_config';
 const VENTILO_COLLAPSED_KEY = 'ventilo_collapsed';
 const VENTILO_TAB_COLLAPSED_KEY = 'ventilo_tab_collapsed';
+const VENTILO_ENTREE_COLLAPSED_KEY = 'ventilo_entree_collapsed';
+const VENTILO_SORTIE_COLLAPSED_KEY = 'ventilo_sortie_collapsed';
 const TOTEM_SPECS_KEY = 'totem_specs';
 let profilsEnregistres = {};
 let profilActuel = 'default';
@@ -1096,6 +1128,37 @@ function restaurerEtatVentiloTab() {
   }
 }
 
+function toggleVentiloGroup(group) {
+  const container = document.getElementById(`ventilo-${group}-container`);
+  const header = document.querySelector(`[data-ventilo-group="${group}"]`);
+  const toggle = document.querySelector(`[data-ventilo-group="${group}"].ventilo-group-toggle`);
+  if (container && header && toggle) {
+    container.classList.toggle('collapsed');
+    toggle.classList.toggle('collapsed');
+    const key = group === 'entree' ? VENTILO_ENTREE_COLLAPSED_KEY : VENTILO_SORTIE_COLLAPSED_KEY;
+    const isCollapsed = container.classList.contains('collapsed');
+    localStorage.setItem(key, isCollapsed ? 'true' : 'false');
+  }
+}
+
+function restaurerEtatVentiloGroups() {
+  try {
+    const groups = ['entree', 'sortie'];
+    groups.forEach(group => {
+      const key = group === 'entree' ? VENTILO_ENTREE_COLLAPSED_KEY : VENTILO_SORTIE_COLLAPSED_KEY;
+      const isCollapsed = localStorage.getItem(key) === 'true';
+      const container = document.getElementById(`ventilo-${group}-container`);
+      const toggle = document.querySelector(`[data-ventilo-group="${group}"].ventilo-group-toggle`);
+      if (container && isCollapsed) {
+        container.classList.add('collapsed');
+        if (toggle) toggle.classList.add('collapsed');
+      }
+    });
+  } catch (e) {
+    console.warn('Erreur lors de la restauration de l\'état groupes ventilation', e);
+  }
+}
+
 let _specsTotemDebounce = null;
 
 function afficherDimensionsTotem(specs) {
@@ -1105,6 +1168,7 @@ function afficherDimensionsTotem(specs) {
   const w = specs.width ? `${specs.width}` : null;
   const d = specs.depth ? `${specs.depth}` : null;
   const parts = [];
+  if (specs.name) parts.push(`<b>${specs.name}</b>`);
   if (h || w || d) parts.push(`${h||'?'} × ${w||'?'} × ${d||'?'} mm`);
   if (specs.watt) parts.push(`${specs.watt} W`);
   if (parts.length === 0) {
@@ -1117,6 +1181,7 @@ function afficherDimensionsTotem(specs) {
 
 function _appliquerSpecsTotem(specs) {
   const fields = [
+    ['totem-spec-name', specs.name],
     ['totem-spec-height', specs.height],
     ['totem-spec-width', specs.width],
     ['totem-spec-depth', specs.depth],
@@ -1133,6 +1198,7 @@ function _appliquerSpecsTotem(specs) {
 
 function _lireSpecsDepuisDOM() {
   return {
+    name: document.getElementById('totem-spec-name')?.value || '',
     height: document.getElementById('totem-spec-height')?.value || '',
     width: document.getElementById('totem-spec-width')?.value || '',
     depth: document.getElementById('totem-spec-depth')?.value || '',

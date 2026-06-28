@@ -51,6 +51,7 @@ async function initPg() {
   )`);
   await pgClient.query(`CREATE TABLE IF NOT EXISTS totem_specs (
     id INTEGER PRIMARY KEY DEFAULT 1,
+    name TEXT,
     height TEXT,
     width TEXT,
     depth TEXT,
@@ -58,7 +59,7 @@ async function initPg() {
     environment TEXT,
     color TEXT,
     updatedAt TEXT
-  )`);
+  `);
 }
 
 // Initialize sqlite tables
@@ -82,6 +83,7 @@ sqliteDb.serialize(() => {
   )`);
   sqliteDb.run(`CREATE TABLE IF NOT EXISTS totem_specs (
     id INTEGER PRIMARY KEY DEFAULT 1,
+    name TEXT,
     height TEXT,
     width TEXT,
     depth TEXT,
@@ -89,7 +91,7 @@ sqliteDb.serialize(() => {
     environment TEXT,
     color TEXT,
     updatedAt TEXT
-  )`);
+  )`, (err) => { if (err) console.error('SQLite CREATE TABLE totem_specs error', err); });
 });
 
 // Start PG if configured
@@ -323,28 +325,28 @@ app.get('/api/totem-specs', async (req, res) => {
 });
 
 app.post('/api/totem-specs', requireApiToken, async (req, res) => {
-  const { height, width, depth, watt, environment, color } = req.body;
+  const { name, height, width, depth, watt, environment, color } = req.body;
   const now = new Date().toISOString();
   try {
     if (usePg && pgClient) {
       await pgClient.query(
-        `INSERT INTO totem_specs (id, height, width, depth, watt, environment, color, updatedAt)
-         VALUES (1, $1,$2,$3,$4,$5,$6,$7)
-         ON CONFLICT (id) DO UPDATE SET height=EXCLUDED.height, width=EXCLUDED.width, depth=EXCLUDED.depth,
+        `INSERT INTO totem_specs (id, name, height, width, depth, watt, environment, color, updatedAt)
+         VALUES (1, $1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, height=EXCLUDED.height, width=EXCLUDED.width, depth=EXCLUDED.depth,
            watt=EXCLUDED.watt, environment=EXCLUDED.environment, color=EXCLUDED.color, updatedAt=EXCLUDED.updatedAt`,
-        [height||'', width||'', depth||'', watt||'', environment||'', color||'', now]
+        [name||'', height||'', width||'', depth||'', watt||'', environment||'', color||'', now]
       );
-      return res.json({ height, width, depth, watt, environment, color, updatedAt: now });
+      return res.json({ name, height, width, depth, watt, environment, color, updatedAt: now });
     }
     sqliteDb.run(
-      `INSERT INTO totem_specs (id, height, width, depth, watt, environment, color, updatedAt)
-       VALUES (1,?,?,?,?,?,?,?)
-       ON CONFLICT(id) DO UPDATE SET height=excluded.height, width=excluded.width, depth=excluded.depth,
+      `INSERT INTO totem_specs (id, name, height, width, depth, watt, environment, color, updatedAt)
+       VALUES (1,?,?,?,?,?,?,?,?)
+       ON CONFLICT(id) DO UPDATE SET name=excluded.name, height=excluded.height, width=excluded.width, depth=excluded.depth,
          watt=excluded.watt, environment=excluded.environment, color=excluded.color, updatedAt=excluded.updatedAt`,
-      [height||'', width||'', depth||'', watt||'', environment||'', color||'', now],
+      [name||'', height||'', width||'', depth||'', watt||'', environment||'', color||'', now],
       function (err) {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ height, width, depth, watt, environment, color, updatedAt: now });
+        res.json({ name, height, width, depth, watt, environment, color, updatedAt: now });
       }
     );
   } catch (e) {
