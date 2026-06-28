@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const profileSelect = document.getElementById('profile-select');
   const profileSaveBtn = document.getElementById('profile-save-btn');
   const profileDeleteBtn = document.getElementById('profile-delete-btn');
-  const clearBtn = document.querySelector('.clear-btn');
+  const clearBtn = document.getElementById('clear-log-btn');
   const exportBtn = document.getElementById('export-btn');
   const modeAuto = document.getElementById('btn-mode-auto');
   const modeManu = document.getElementById('btn-mode-manu');
@@ -229,15 +229,17 @@ async function chargerProfilesDepuisServeur() {
 }
 
 async function sauvegarderProfilSurServeur(name) {
-  await sendToServer('/api/profiles', {
+  const response = await sendToServer('/api/profiles', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, names: [...SONDE_CUSTOM_NAMES], positions: getCurrentPositions() })
   });
+  return !!(response && response.name);
 }
 
 async function supprimerProfilSurServeur(name) {
-  await sendToServer(`/api/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  const response = await sendToServer(`/api/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  return !!(response && response.success);
 }
 
 async function chargerProfilDepuisServeur(name, enregistrerLast = true) {
@@ -356,14 +358,21 @@ async function sauvegarderProfil() {
   enregistrerProfilesLocalement();
   renderProfiles();
   const select = document.getElementById('profile-select'); if (select) select.value = libelle;
-  await sauvegarderProfilSurServeur(libelle);
+  const synced = await sauvegarderProfilSurServeur(libelle);
+  if (!synced) {
+    alert('Profil enregistré localement uniquement. Synchronisation serveur impossible pour le moment.');
+  }
   chargerProfil(libelle);
 }
 
 async function supprimerProfil() {
   if (profilActuel === 'default') return; if (!confirm(`Supprimer le profil « ${profilActuel} » ?`)) return;
   delete profilsEnregistres[profilActuel]; enregistrerProfilesLocalement();
-  await supprimerProfilSurServeur(profilActuel); renderProfiles(); const select = document.getElementById('profile-select'); if (select) select.value = 'default'; chargerProfil('default');
+  const deleted = await supprimerProfilSurServeur(profilActuel);
+  if (!deleted) {
+    alert('Suppression locale effectuée, mais la suppression serveur a échoué.');
+  }
+  renderProfiles(); const select = document.getElementById('profile-select'); if (select) select.value = 'default'; chargerProfil('default');
 }
 
 async function initialiserProfils() {
