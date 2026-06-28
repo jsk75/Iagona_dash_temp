@@ -4,9 +4,10 @@ services:
     env: node
     plan: free
     branch: main
-    buildCommand: npm install
+    buildCommand: npm ci
     startCommand: npm start
     envVars:
       - key: API_TOKEN
       - key: DATABASE_URL
       - key: NODE_ENV
+        value: production
