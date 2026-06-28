@@ -12,6 +12,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const profileDeleteBtn = document.getElementById('profile-delete-btn');
   const clearBtn = document.getElementById('clear-log-btn');
   const exportBtn = document.getElementById('export-btn');
+  const totemUploadInput = document.getElementById('totem-image-upload');
+  const totemDropzone = document.getElementById('totem-dropzone');
+  const totemResetBtn = document.getElementById('totem-reset-image-btn');
   const modeAuto = document.getElementById('btn-mode-auto');
   const modeManu = document.getElementById('btn-mode-manu');
 
@@ -34,6 +37,31 @@ document.addEventListener('DOMContentLoaded', () => {
   if (clearBtn) clearBtn.addEventListener('click', viderLog);
   if (exportBtn) exportBtn.addEventListener('click', exporterExcel);
 
+  if (totemUploadInput) totemUploadInput.addEventListener('change', (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (file) ajouterImageTotemDepuisFichier(file);
+    e.target.value = '';
+  });
+  if (totemDropzone) {
+    ['dragenter', 'dragover'].forEach(evt => {
+      totemDropzone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        totemDropzone.classList.add('dragover');
+      });
+    });
+    ['dragleave', 'drop'].forEach(evt => {
+      totemDropzone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        totemDropzone.classList.remove('dragover');
+      });
+    });
+    totemDropzone.addEventListener('drop', (e) => {
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) ajouterImageTotemDepuisFichier(file);
+    });
+  }
+  if (totemResetBtn) totemResetBtn.addEventListener('click', resetImageTotemParDefaut);
+
   if (modeAuto) modeAuto.addEventListener('click', () => changerModeVentilo('AUTO'));
   if (modeManu) modeManu.addEventListener('click', () => changerModeVentilo('MANU'));
 
@@ -44,6 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // initialize dynamic parts that expect to run after DOM is ready
+  initialiserImagesTotem();
   initTotemSensors();
   initialiserProfils();
   geolocalisationAutomatique();
@@ -175,8 +204,13 @@ const SONDE_PREFIX = ["Sonde 1", "Sonde 2", "Sonde 3", "Sonde 4", "Sonde 5"];
 const SONDE_CUSTOM_NAMES = Array(NB_SONDES).fill('');
 const PROFIL_STORAGE_KEY = 'sonde_profiles';
 const PROFIL_LAST_KEY = 'sonde_last_profile';
+const TOTEM_IMAGE_LIBRARY_KEY = 'totem_image_library';
+const TOTEM_SELECTED_IMAGE_KEY = 'totem_selected_image';
+const TOTEM_DEFAULT_IMAGE = 'totem-clean.png';
 let profilsEnregistres = {};
 let profilActuel = 'default';
+let totemImageLibrary = [];
+let totemSelectedImage = TOTEM_DEFAULT_IMAGE;
 
 function getSondeLabel(idx) {
   return SONDE_CUSTOM_NAMES[idx] ? `${SONDE_PREFIX[idx]} - ${SONDE_CUSTOM_NAMES[idx]}` : SONDE_PREFIX[idx];
@@ -190,6 +224,115 @@ function getDefaultPositions() {
     { id: '4', left: '50%', top: '68%' },
     { id: '5', left: '50%', top: '85%' }
   ];
+}
+
+function chargerBibliothequeImagesTotem() {
+  try {
+    const saved = localStorage.getItem(TOTEM_IMAGE_LIBRARY_KEY);
+    const parsed = saved ? JSON.parse(saved) : [];
+    totemImageLibrary = Array.isArray(parsed)
+      ? parsed.filter(item => item && typeof item.id === 'string' && typeof item.src === 'string')
+      : [];
+  } catch {
+    totemImageLibrary = [];
+  }
+}
+
+function sauvegarderBibliothequeImagesTotem() {
+  localStorage.setItem(TOTEM_IMAGE_LIBRARY_KEY, JSON.stringify(totemImageLibrary));
+}
+
+function getTotemImageItems() {
+  return [{ id: 'default', src: TOTEM_DEFAULT_IMAGE, custom: false }, ...totemImageLibrary.map(item => ({ ...item, custom: true }))];
+}
+
+function appliquerImageTotem(src) {
+  const img = document.getElementById('totem-image');
+  if (img) img.src = src;
+  totemSelectedImage = src;
+  localStorage.setItem(TOTEM_SELECTED_IMAGE_KEY, src);
+  renderVignettesTotem();
+}
+
+function supprimerImageTotem(id) {
+  const item = totemImageLibrary.find(entry => entry.id === id);
+  if (!item) return;
+  totemImageLibrary = totemImageLibrary.filter(entry => entry.id !== id);
+  sauvegarderBibliothequeImagesTotem();
+  if (totemSelectedImage === item.src) {
+    appliquerImageTotem(TOTEM_DEFAULT_IMAGE);
+  } else {
+    renderVignettesTotem();
+  }
+}
+
+function renderVignettesTotem() {
+  const grid = document.getElementById('totem-thumb-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+
+  getTotemImageItems().forEach(item => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `totem-thumb${item.custom ? ' custom' : ''}${totemSelectedImage === item.src ? ' active' : ''}`;
+    button.title = item.custom ? 'Image importée' : 'Image par défaut';
+
+    const image = document.createElement('img');
+    image.src = item.src;
+    image.alt = item.custom ? 'Totem personnalisé' : 'Totem par défaut';
+    button.appendChild(image);
+
+    button.addEventListener('click', () => appliquerImageTotem(item.src));
+
+    if (item.custom) {
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'totem-thumb-remove';
+      removeBtn.textContent = '×';
+      removeBtn.title = 'Supprimer cette image';
+      removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        supprimerImageTotem(item.id);
+      });
+      button.appendChild(removeBtn);
+    }
+
+    grid.appendChild(button);
+  });
+}
+
+function resetImageTotemParDefaut() {
+  appliquerImageTotem(TOTEM_DEFAULT_IMAGE);
+}
+
+function ajouterImageTotemDepuisFichier(file) {
+  if (!file || !file.type || !file.type.startsWith('image/')) {
+    alert('Veuillez sélectionner un fichier image valide.');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const src = typeof reader.result === 'string' ? reader.result : '';
+    if (!src) return;
+    const newEntry = { id: `custom_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`, src };
+    totemImageLibrary.unshift(newEntry);
+    if (totemImageLibrary.length > 18) totemImageLibrary = totemImageLibrary.slice(0, 18);
+    sauvegarderBibliothequeImagesTotem();
+    appliquerImageTotem(src);
+  };
+  reader.readAsDataURL(file);
+}
+
+function initialiserImagesTotem() {
+  chargerBibliothequeImagesTotem();
+  const savedImage = localStorage.getItem(TOTEM_SELECTED_IMAGE_KEY);
+  const allowedSources = new Set([TOTEM_DEFAULT_IMAGE, ...totemImageLibrary.map(item => item.src)]);
+  const source = savedImage && allowedSources.has(savedImage) ? savedImage : TOTEM_DEFAULT_IMAGE;
+  const img = document.getElementById('totem-image');
+  if (img) img.src = source;
+  totemSelectedImage = source;
+  renderVignettesTotem();
 }
 
 async function sendToServer(path, options = {}) {
