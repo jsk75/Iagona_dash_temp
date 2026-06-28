@@ -763,8 +763,11 @@
   </div>
 
   <div class="sidebar-section">
-    <div class="section-title">Spécifications du Totem</div>
-    <div class="specs-group">
+    <div class="sidebar-accordion-header" id="specs-tab-toggle">
+      <div class="section-title" style="margin-bottom:0;">Spécifications du Totem</div>
+      <span class="sidebar-accordion-icon" id="specs-tab-icon">▼</span>
+    </div>
+    <div class="sidebar-accordion-body" id="specs-tab-body">
       <!-- Nom du Totem -->
       <div class="specs-row full">
         <div class="specs-field">
@@ -899,8 +902,11 @@
   </div>
 
   <div class="sidebar-section">
-    <div class="section-title">Renommer les sondes</div>
-    <div class="rename-list" id="rename-list">
+    <div class="sidebar-accordion-header" id="definition-tab-toggle">
+      <div class="section-title" style="margin-bottom:0;">Définition sonde</div>
+      <span class="sidebar-accordion-icon" id="definition-tab-icon">▼</span>
+    </div>
+    <div class="sidebar-accordion-body" id="definition-tab-body">
       <div class="rename-row">
         <label for="sonde-name-0">Sonde 1</label>
         <input id="sonde-name-0" type="text" placeholder="Nom personnalisé">
@@ -924,30 +930,42 @@
     </div>
   </div>
 
-  <div class="sidebar-section profile-section">
-    <div class="section-title">Profils de sondes</div>
-    <select id="profile-select" class="profile-select">
-      <option value="default">Par défaut</option>
-    </select>
-    <div class="rename-row" style="margin-top: 14px;">
-      <label for="profile-name">Nom du profil</label>
-      <input id="profile-name" type="text" placeholder="Nouveau profil" />
+  <div class="sidebar-section">
+    <div class="sidebar-accordion-header" id="profils-tab-toggle">
+      <div class="section-title" style="margin-bottom:0;">Profils de sondes</div>
+      <span class="sidebar-accordion-icon" id="profils-tab-icon">▼</span>
     </div>
-    <div class="profile-actions" style="display:flex; gap:10px; margin-top:12px;">
-      <button id="profile-save-btn" class="export-btn" type="button">Enregistrer</button>
-      <button id="profile-delete-btn" class="clear-btn" type="button">Supprimer</button>
+    <div class="sidebar-accordion-body" id="profils-tab-body">
+      <div class="profile-section">
+        <select id="profile-select" class="profile-select">
+          <option value="default">Par défaut</option>
+        </select>
+        <div class="rename-row" style="margin-top: 14px;">
+          <label for="profile-name">Nom du profil</label>
+          <input id="profile-name" type="text" placeholder="Nouveau profil" />
+        </div>
+        <div class="profile-actions" style="display:flex; gap:10px; margin-top:12px;">
+          <button id="profile-save-btn" class="export-btn" type="button">Enregistrer</button>
+          <button id="profile-delete-btn" class="clear-btn" type="button">Supprimer</button>
+        </div>
+      </div>
     </div>
   </div>
 
   <div class="sidebar-section">
-    <div class="section-title">Image du totem</div>
-    <label class="totem-dropzone" id="totem-dropzone" for="totem-image-upload">
-      Glissez une image ici (PC)<br>ou cliquez pour importer
-    </label>
-    <input id="totem-image-upload" type="file" accept="image/*" hidden>
-    <div class="totem-thumb-grid" id="totem-thumb-grid"></div>
-    <div class="totem-image-actions">
-      <button id="totem-reset-image-btn" class="clear-btn" type="button" style="width:100%;">Image par défaut</button>
+    <div class="sidebar-accordion-header" id="image-tab-toggle">
+      <div class="section-title" style="margin-bottom:0;">Image du totem</div>
+      <span class="sidebar-accordion-icon" id="image-tab-icon">▼</span>
+    </div>
+    <div class="sidebar-accordion-body" id="image-tab-body">
+      <label class="totem-dropzone" id="totem-dropzone" for="totem-image-upload">
+        Glissez une image ici (PC)<br>ou cliquez pour importer
+      </label>
+      <input id="totem-image-upload" type="file" accept="image/*" hidden>
+      <div class="totem-thumb-grid" id="totem-thumb-grid"></div>
+      <div class="totem-image-actions">
+        <button id="totem-reset-image-btn" class="clear-btn" type="button" style="width:100%;">Image par défaut</button>
+      </div>
     </div>
   </div>
 </div>

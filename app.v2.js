@@ -89,8 +89,16 @@ document.addEventListener('DOMContentLoaded', () => {
   // Toggle onglet ventilation (accordéon principal)
   const ventiloTabToggle = document.getElementById('ventilo-tab-toggle');
   if (ventiloTabToggle) {
-    ventiloTabToggle.addEventListener('click', () => toggleVentiloTab());
+    ventiloTabToggle.addEventListener('click', () => toggleAccordion('ventilo'));
   }
+
+  // Toggle onglets principaux (specs, definition, profils, image)
+  ['specs', 'definition', 'profils', 'image'].forEach(tabName => {
+    const toggle = document.getElementById(`${tabName}-tab-toggle`);
+    if (toggle) {
+      toggle.addEventListener('click', () => toggleAccordion(tabName));
+    }
+  });
 
   // Toggle groups ventilateurs entrée/sortie
   document.querySelectorAll('.ventilo-group-header').forEach(header => {
@@ -144,6 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initialiserVentilateurs();
   chargerSpecsTotem();
   restaurerEtatVentiloTab();
+  restaurerEtatAccordions();
   restaurerEtatVentiloGroups();
   geolocalisationAutomatique();
   setInterval(recupererMeteo, 900000);
@@ -305,6 +314,10 @@ const VENTILO_TAB_COLLAPSED_KEY = 'ventilo_tab_collapsed';
 const VENTILO_ENTREE_COLLAPSED_KEY = 'ventilo_entree_collapsed';
 const VENTILO_SORTIE_COLLAPSED_KEY = 'ventilo_sortie_collapsed';
 const TOTEM_SPECS_KEY = 'totem_specs';
+const SPECS_TAB_COLLAPSED_KEY = 'specs_tab_collapsed';
+const DEFINITION_TAB_COLLAPSED_KEY = 'definition_tab_collapsed';
+const PROFILS_TAB_COLLAPSED_KEY = 'profils_tab_collapsed';
+const IMAGE_TAB_COLLAPSED_KEY = 'image_tab_collapsed';
 let profilsEnregistres = {};
 let profilActuel = 'default';
 let totemImageLibrary = [];
@@ -1100,6 +1113,58 @@ function restaurerEtatVentiloSection() {
     }
   } catch (e) {
     console.warn('Erreur lors de la restauration de l\'état ventilation', e);
+  }
+}
+
+// Generic accordion toggle for all sidebar sections
+function toggleAccordion(tabName) {
+  const body = document.getElementById(`${tabName}-tab-body`);
+  const icon = document.getElementById(`${tabName}-tab-icon`);
+  if (body && icon) {
+    body.classList.toggle('collapsed');
+    icon.classList.toggle('collapsed');
+    const isCollapsed = body.classList.contains('collapsed');
+    
+    // Map tab names to localStorage keys
+    const keyMap = {
+      'specs': SPECS_TAB_COLLAPSED_KEY,
+      'ventilo': VENTILO_TAB_COLLAPSED_KEY,
+      'definition': DEFINITION_TAB_COLLAPSED_KEY,
+      'profils': PROFILS_TAB_COLLAPSED_KEY,
+      'image': IMAGE_TAB_COLLAPSED_KEY
+    };
+    
+    const key = keyMap[tabName];
+    if (key) {
+      localStorage.setItem(key, isCollapsed ? 'true' : 'false');
+    }
+  }
+}
+
+// Restore accordion states for all sections
+function restaurerEtatAccordions() {
+  try {
+    const sections = ['specs', 'ventilo', 'definition', 'profils', 'image'];
+    const keyMap = {
+      'specs': SPECS_TAB_COLLAPSED_KEY,
+      'ventilo': VENTILO_TAB_COLLAPSED_KEY,
+      'definition': DEFINITION_TAB_COLLAPSED_KEY,
+      'profils': PROFILS_TAB_COLLAPSED_KEY,
+      'image': IMAGE_TAB_COLLAPSED_KEY
+    };
+    
+    sections.forEach(tabName => {
+      const key = keyMap[tabName];
+      const isCollapsed = localStorage.getItem(key) === 'true';
+      const body = document.getElementById(`${tabName}-tab-body`);
+      const icon = document.getElementById(`${tabName}-tab-icon`);
+      if (body && icon && isCollapsed) {
+        body.classList.add('collapsed');
+        icon.classList.add('collapsed');
+      }
+    });
+  } catch (e) {
+    console.warn('Erreur lors de la restauration des états accordéon', e);
   }
 }
 
