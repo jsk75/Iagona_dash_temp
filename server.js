@@ -2,12 +2,19 @@ const express = require('express');
 const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
 const { Client: PgClient } = require('pg');
+const mqtt = require('mqtt');
 const path = require('path');
 const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
+const MQTT_HOST = process.env.MQTT_HOST || 'broker.hivemq.com';
+const MQTT_PORT = parseInt(process.env.MQTT_PORT || '8884', 10);
+const TOPIC_ROOT = process.env.TOPIC_ROOT || 'temperatures';
+const NB_SONDES = parseInt(process.env.NB_SONDES || '5', 10);
+const SONDE_NAMES = Array.from({ length: NB_SONDES }, (_, i) => `Sonde${i + 1}`);
+let mqttClient = null;
 
 const usePg = !!process.env.DATABASE_URL;
 let pgClient = null;
@@ -100,6 +107,105 @@ function requireApiToken(req, res, next) {
   const provided = req.headers['x-api-token'] || (req.headers.authorization && req.headers.authorization.split(' ')[1]);
   if (provided !== token) return res.status(401).json({ error: 'Unauthorized' });
   next();
+}
+
+function inferSondeIdxFromName(name) {
+  if (!name || typeof name !== 'string') return -1;
+  const directIdx = SONDE_NAMES.indexOf(name);
+  if (directIdx >= 0) return directIdx;
+  const match = name.match(/(\d+)/);
+  if (!match) return -1;
+  const parsed = parseInt(match[1], 10) - 1;
+  if (Number.isNaN(parsed)) return -1;
+  return parsed >= 0 && parsed < NB_SONDES ? parsed : -1;
+}
+
+function buildLogPayloadFromMqtt(data) {
+  if (!data || typeof data !== 'object') return null;
+  const temp = parseFloat(data.temp);
+  if (Number.isNaN(temp)) return null;
+
+  const sondeIdx = typeof data.sondeIdx === 'number'
+    ? data.sondeIdx
+    : inferSondeIdxFromName(data.nom || data.label || '');
+  if (sondeIdx < 0 || sondeIdx >= NB_SONDES) return null;
+
+  const now = new Date();
+  return {
+    sondeIdx,
+    label: data.nom || `Sonde ${sondeIdx + 1}`,
+    temp,
+    date: now.toLocaleDateString('fr-FR'),
+    heure: now.toLocaleTimeString('fr-FR'),
+    ts: now.toISOString(),
+    createdAt: now.toISOString()
+  };
+}
+
+async function insertLogRecord({ sondeIdx, label, temp, date, heure, ts, createdAt }) {
+  const resolvedCreatedAt = createdAt || new Date().toISOString();
+  if (usePg && pgClient) {
+    const { rows } = await pgClient.query(
+      'INSERT INTO logs (sondeIdx, label, temp, date, heure, ts, createdAt) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+      [sondeIdx, label || '', temp, date || '', heure || '', ts || '', resolvedCreatedAt]
+    );
+    return rows[0];
+  }
+
+  return await new Promise((resolve, reject) => {
+    sqliteDb.run(
+      'INSERT INTO logs (sondeIdx, label, temp, date, heure, ts, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [sondeIdx, label || '', temp, date || '', heure || '', ts || '', resolvedCreatedAt],
+      function (err) {
+        if (err) return reject(err);
+        resolve({ id: this.lastID, sondeIdx, label, temp, date, heure, ts, createdAt: resolvedCreatedAt });
+      }
+    );
+  });
+}
+
+function startMqttBackupConsumer() {
+  const clientId = `render_backup_${Math.random().toString(16).slice(2, 10)}`;
+  mqttClient = mqtt.connect(`wss://${MQTT_HOST}:${MQTT_PORT}/mqtt`, {
+    clientId,
+    clean: true,
+    reconnectPeriod: 3000,
+    connectTimeout: 10000
+  });
+
+  mqttClient.on('connect', () => {
+    const topic = `${TOPIC_ROOT}/#`;
+    mqttClient.subscribe(topic, err => {
+      if (err) {
+        console.error('MQTT subscribe error', err.message);
+      } else {
+        console.log(`MQTT backup consumer subscribed to ${topic}`);
+      }
+    });
+  });
+
+  mqttClient.on('error', err => {
+    console.error('MQTT client error', err.message);
+  });
+
+  mqttClient.on('message', async (topic, message) => {
+    if (topic === `${TOPIC_ROOT}/ventilateurs`) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(message.toString());
+    } catch {
+      return;
+    }
+
+    const payload = buildLogPayloadFromMqtt(parsed);
+    if (!payload) return;
+
+    try {
+      await insertLogRecord(payload);
+    } catch (error) {
+      console.error('MQTT backup insert error', error.message);
+    }
+  });
 }
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', env: usePg ? 'postgres' : 'sqlite' }));
@@ -199,16 +305,9 @@ app.get('/api/logs', async (req, res) => {
 app.post('/api/logs', requireApiToken, async (req, res) => {
   const { sondeIdx, label, temp, date, heure, ts } = req.body;
   if (typeof sondeIdx !== 'number' || typeof temp !== 'number') return res.status(400).json({ error: 'Payload invalide' });
-  const createdAt = new Date().toISOString();
   try {
-    if (usePg && pgClient) {
-      const { rows } = await pgClient.query('INSERT INTO logs (sondeIdx, label, temp, date, heure, ts, createdAt) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *', [sondeIdx, label || '', temp, date || '', heure || '', ts || '', createdAt]);
-      return res.json(rows[0]);
-    }
-    sqliteDb.run('INSERT INTO logs (sondeIdx, label, temp, date, heure, ts, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)', [sondeIdx, label || '', temp, date || '', heure || '', ts || '', createdAt], function (err) {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID, sondeIdx, label, temp, date, heure, ts, createdAt });
-    });
+    const saved = await insertLogRecord({ sondeIdx, label, temp, date, heure, ts, createdAt: new Date().toISOString() });
+    return res.json(saved);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -216,4 +315,5 @@ app.post('/api/logs', requireApiToken, async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`API server running on port ${PORT} (usePg=${usePg})`);
+  startMqttBackupConsumer();
 });

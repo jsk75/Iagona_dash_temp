@@ -162,6 +162,7 @@ const MQTT_HOST = 'broker.hivemq.com';
 const MQTT_PORT = 8884;  
 const TOPIC_ROOT = 'temperatures';
 const NB_SONDES = 5;     
+const ENABLE_CLIENT_LOG_PUSH = false;
 // When deployed on Render serve frontend and API from the same service.
 // Use an empty string for same-origin API calls (e.g. fetch('/api/...')).
 const API_BASE_URL = window.location.hostname === 'jsk75.github.io'
@@ -206,6 +207,7 @@ async function sendToServer(path, options = {}) {
 }
 
 async function logTempToServer(entry) {
+  if (!ENABLE_CLIENT_LOG_PUSH) return;
   await sendToServer('/api/logs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
