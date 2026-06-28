@@ -224,7 +224,8 @@ async function chargerProfilesDepuisServeur() {
   profiles.forEach(profile => {
     if (profile && profile.name) profilsEnregistres[profile.name] = profile;
   });
-  chargerProfiles();
+  enregistrerProfilesLocalement();
+  renderProfiles();
 }
 
 async function sauvegarderProfilSurServeur(name) {
@@ -243,7 +244,8 @@ async function chargerProfilDepuisServeur(name, enregistrerLast = true) {
   const profile = await sendToServer(`/api/profiles/${encodeURIComponent(name)}`);
   if (!profile || !profile.name) return false;
   profilsEnregistres[profile.name] = profile;
-  chargerProfiles();
+  enregistrerProfilesLocalement();
+  renderProfiles();
   chargerProfil(profile.name, enregistrerLast);
   return true;
 }
@@ -293,12 +295,18 @@ function updateProfileButtons() {
   if (deleteBtn) deleteBtn.disabled = profilActuel === 'default';
 }
 
-function chargerProfiles() {
+function enregistrerProfilesLocalement() {
+  localStorage.setItem(PROFIL_STORAGE_KEY, JSON.stringify(profilsEnregistres));
+}
+
+function chargerProfilesDepuisLocal() {
   try {
     const saved = localStorage.getItem(PROFIL_STORAGE_KEY);
     profilsEnregistres = saved ? JSON.parse(saved) : {};
   } catch (e) { profilsEnregistres = {}; }
+}
 
+function renderProfiles() {
   const select = document.getElementById('profile-select');
   if (!select) return;
   select.innerHTML = '';
@@ -345,8 +353,8 @@ async function sauvegarderProfil() {
   const libelle = document.getElementById('profile-name').value.trim();
   if (!libelle) { alert('Veuillez saisir un nom de profil.'); return; }
   profilsEnregistres[libelle] = { name: libelle, names: [...SONDE_CUSTOM_NAMES], positions: getCurrentPositions(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-  localStorage.setItem(PROFIL_STORAGE_KEY, JSON.stringify(profilsEnregistres));
-  chargerProfiles();
+  enregistrerProfilesLocalement();
+  renderProfiles();
   const select = document.getElementById('profile-select'); if (select) select.value = libelle;
   await sauvegarderProfilSurServeur(libelle);
   chargerProfil(libelle);
@@ -354,12 +362,12 @@ async function sauvegarderProfil() {
 
 async function supprimerProfil() {
   if (profilActuel === 'default') return; if (!confirm(`Supprimer le profil « ${profilActuel} » ?`)) return;
-  delete profilsEnregistres[profilActuel]; localStorage.setItem(PROFIL_STORAGE_KEY, JSON.stringify(profilsEnregistres));
-  await supprimerProfilSurServeur(profilActuel); chargerProfiles(); const select = document.getElementById('profile-select'); if (select) select.value = 'default'; chargerProfil('default');
+  delete profilsEnregistres[profilActuel]; enregistrerProfilesLocalement();
+  await supprimerProfilSurServeur(profilActuel); renderProfiles(); const select = document.getElementById('profile-select'); if (select) select.value = 'default'; chargerProfil('default');
 }
 
 async function initialiserProfils() {
-  chargerProfiles(); await chargerProfilesDepuisServeur(); const last = localStorage.getItem(PROFIL_LAST_KEY);
+  chargerProfilesDepuisLocal(); renderProfiles(); await chargerProfilesDepuisServeur(); const last = localStorage.getItem(PROFIL_LAST_KEY);
   if (last && last !== 'default' && profilsEnregistres[last]) await chargerProfil(last, false); else chargerNomsSondes();
 }
 
