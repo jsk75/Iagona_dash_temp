@@ -378,6 +378,76 @@
       margin-top: 10px;
     }
 
+    /* Spécifications du totem */
+    .specs-group {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .specs-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .specs-row.full {
+      grid-template-columns: 1fr;
+    }
+    .specs-field {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 6px;
+    }
+    .specs-field label {
+      font-size: 11px;
+      color: #aaa;
+      display: block;
+    }
+    .specs-field input,
+    .specs-field select {
+      width: 100%;
+      padding: 8px 10px;
+      background: #0f1117;
+      border: 1px solid #2a2d3a;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 13px;
+    }
+    .specs-field input:focus,
+    .specs-field select:focus {
+      outline: none;
+      border-color: #4fc3f7;
+    }
+    .specs-dimensions {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      align-items: end;
+    }
+    .specs-dimensions-field {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 4px;
+    }
+    .specs-dimensions-field label {
+      font-size: 10px;
+      color: #888;
+    }
+    .specs-dimensions-field input {
+      width: 100%;
+      padding: 6px 8px;
+      background: #0f1117;
+      border: 1px solid #2a2d3a;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 12px;
+    }
+    .specs-dimensions-unit {
+      font-size: 10px;
+      color: #666;
+      text-align: center;
+      margin-top: 2px;
+    }
+
     /* Système de ventilation */
     .debit-input-group {
       display: grid;
@@ -467,6 +537,45 @@
       font-size: 11px;
       color: #666;
       margin-top: 4px;
+    }
+
+    /* Système de ventilation - Collapsible */
+    .ventilo-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #2a2d3a;
+      margin-bottom: 12px;
+    }
+    .ventilo-header:hover {
+      opacity: 0.8;
+    }
+    .ventilo-toggle-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      transition: transform 0.3s ease;
+      color: #4fc3f7;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .ventilo-toggle-icon.collapsed {
+      transform: rotate(-90deg);
+    }
+    .ventilo-content {
+      max-height: 1000px;
+      overflow: hidden;
+      transition: max-height 0.3s ease, opacity 0.3s ease;
+      opacity: 1;
+    }
+    .ventilo-content.collapsed {
+      max-height: 0;
+      opacity: 0;
     }
 
     .cards {
@@ -577,23 +686,29 @@
   </div>
 
   <div class="sidebar-section">
-    <div class="section-title">Système de ventilation</div>
-    <div class="debit-input-group">
-      <label for="ventilo-debit-input">Débit ventilateur (m³/h)</label>
-      <input id="ventilo-debit-input" type="number" placeholder="Ex: 100" value="100" min="0" step="1">
-    </div>
-    <div class="debit-total-display">
-      Débit total: <span id="ventilo-debit-total">0</span> m³/h
+    <div class="ventilo-header" id="ventilo-header-toggle">
+      <span class="ventilo-toggle-icon" id="ventilo-toggle-icon">v</span>
+      <div class="section-title" style="margin-bottom: 0;">Système de ventilation</div>
     </div>
 
-    <div class="ventilo-group">
-      <div class="ventilo-group-title">Ventilateurs Entrée</div>
-      <div class="ventilo-items" id="ventilo-entree-container"></div>
-    </div>
+    <div class="ventilo-content" id="ventilo-content">
+      <div class="debit-input-group">
+        <label for="ventilo-debit-input">Débit ventilateur (m³/h)</label>
+        <input id="ventilo-debit-input" type="number" placeholder="Ex: 100" value="100" min="0" step="1">
+      </div>
+      <div class="debit-total-display">
+        Débit total: <span id="ventilo-debit-total">0</span> m³/h
+      </div>
 
-    <div class="ventilo-group">
-      <div class="ventilo-group-title">Ventilateurs Sortie</div>
-      <div class="ventilo-items" id="ventilo-sortie-container"></div>
+      <div class="ventilo-group">
+        <div class="ventilo-group-title">Ventilateurs Entrée</div>
+        <div class="ventilo-items" id="ventilo-entree-container"></div>
+      </div>
+
+      <div class="ventilo-group">
+        <div class="ventilo-group-title">Ventilateurs Sortie</div>
+        <div class="ventilo-items" id="ventilo-sortie-container"></div>
+      </div>
     </div>
   </div>
 
@@ -647,6 +762,67 @@
     <div class="totem-thumb-grid" id="totem-thumb-grid"></div>
     <div class="totem-image-actions">
       <button id="totem-reset-image-btn" class="clear-btn" type="button" style="width:100%;">Image par défaut</button>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="section-title">Spécifications du totem</div>
+    <div class="specs-group">
+      <!-- Dimensions -->
+      <div class="specs-field">
+        <label>Dimensions (mm)</label>
+        <div class="specs-dimensions">
+          <div class="specs-dimensions-field">
+            <label>Hauteur</label>
+            <input id="totem-spec-height" type="number" placeholder="0" min="0" step="1">
+            <div class="specs-dimensions-unit">mm</div>
+          </div>
+          <div class="specs-dimensions-field">
+            <label>Largeur</label>
+            <input id="totem-spec-width" type="number" placeholder="0" min="0" step="1">
+            <div class="specs-dimensions-unit">mm</div>
+          </div>
+          <div class="specs-dimensions-field">
+            <label>Profondeur</label>
+            <input id="totem-spec-depth" type="number" placeholder="0" min="0" step="1">
+            <div class="specs-dimensions-unit">mm</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Watt et Environnement -->
+      <div class="specs-row">
+        <div class="specs-field">
+          <label for="totem-spec-watt">Watt à dissiper</label>
+          <input id="totem-spec-watt" type="number" placeholder="Ex: 500" min="0" step="1">
+        </div>
+        <div class="specs-field">
+          <label for="totem-spec-environment">Environnement</label>
+          <select id="totem-spec-environment">
+            <option value="">-- Sélectionner --</option>
+            <option value="indoor">Indoor</option>
+            <option value="outdoor">Outdoor</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Couleur -->
+      <div class="specs-row full">
+        <div class="specs-field">
+          <label for="totem-spec-color">Couleur</label>
+          <select id="totem-spec-color">
+            <option value="">-- Sélectionner --</option>
+            <option value="noir">Noir</option>
+            <option value="blanc">Blanc</option>
+            <option value="gris">Gris</option>
+            <option value="silver">Silver</option>
+            <option value="bleu">Bleu</option>
+            <option value="rouge">Rouge</option>
+            <option value="vert">Vert</option>
+            <option value="autre">Autre</option>
+          </select>
+        </div>
+      </div>
     </div>
   </div>
 </div>

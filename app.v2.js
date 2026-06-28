@@ -80,6 +80,29 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Toggle ventilation section
+  const ventiloHeaderToggle = document.getElementById('ventilo-header-toggle');
+  if (ventiloHeaderToggle) {
+    ventiloHeaderToggle.addEventListener('click', () => toggleVentiloSection());
+  }
+
+  // Spécifications du totem
+  const specFields = [
+    'totem-spec-height',
+    'totem-spec-width',
+    'totem-spec-depth',
+    'totem-spec-watt',
+    'totem-spec-environment',
+    'totem-spec-color'
+  ];
+  specFields.forEach(fieldId => {
+    const field = document.getElementById(fieldId);
+    if (field) {
+      field.addEventListener('input', sauvegarderSpecsTotem);
+      field.addEventListener('change', sauvegarderSpecsTotem);
+    }
+  });
+
   // initialize dynamic parts that expect to run after DOM is ready
   initialiserImagesTotem();
   initTotemSensors();
@@ -218,6 +241,8 @@ const TOTEM_IMAGE_LIBRARY_KEY = 'totem_image_library';
 const TOTEM_SELECTED_IMAGE_KEY = 'totem_selected_image';
 const TOTEM_DEFAULT_IMAGE = 'totem-clean.png';
 const VENTILO_STORAGE_KEY = 'ventilo_config';
+const VENTILO_COLLAPSED_KEY = 'ventilo_collapsed';
+const TOTEM_SPECS_KEY = 'totem_specs';
 let profilsEnregistres = {};
 let profilActuel = 'default';
 let totemImageLibrary = [];
@@ -882,6 +907,7 @@ function initialiserVentilateurs() {
 
   chargerConfigVentilateurs();
   mettreAJourDebitTotal();
+  restaurerEtatVentiloSection();
 }
 
 function chargerConfigVentilateurs() {
@@ -984,5 +1010,33 @@ function mettreAJourDebitTotal() {
   const displayEl = document.getElementById('ventilo-debit-total');
   if (displayEl) {
     displayEl.textContent = totalDebit.toFixed(2);
+  }
+}
+
+function toggleVentiloSection() {
+  const content = document.getElementById('ventilo-content');
+  const icon = document.getElementById('ventilo-toggle-icon');
+  
+  if (content && icon) {
+    content.classList.toggle('collapsed');
+    icon.classList.toggle('collapsed');
+    
+    const isCollapsed = content.classList.contains('collapsed');
+    localStorage.setItem(VENTILO_COLLAPSED_KEY, isCollapsed ? 'true' : 'false');
+  }
+}
+
+function restaurerEtatVentiloSection() {
+  try {
+    const isCollapsed = localStorage.getItem(VENTILO_COLLAPSED_KEY) === 'true';
+    const content = document.getElementById('ventilo-content');
+    const icon = document.getElementById('ventilo-toggle-icon');
+    
+    if (content && icon && isCollapsed) {
+      content.classList.add('collapsed');
+      icon.classList.add('collapsed');
+    }
+  } catch (e) {
+    console.warn('Erreur lors de la restauration de l\'état ventilation', e);
   }
 }
