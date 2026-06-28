@@ -49,6 +49,16 @@ async function initPg() {
     ts TEXT,
     createdAt TEXT
   )`);
+  await pgClient.query(`CREATE TABLE IF NOT EXISTS totem_specs (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    height TEXT,
+    width TEXT,
+    depth TEXT,
+    watt TEXT,
+    environment TEXT,
+    color TEXT,
+    updatedAt TEXT
+  )`);
 }
 
 // Initialize sqlite tables
@@ -69,6 +79,16 @@ sqliteDb.serialize(() => {
     heure TEXT,
     ts TEXT,
     createdAt TEXT
+  )`);
+  sqliteDb.run(`CREATE TABLE IF NOT EXISTS totem_specs (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    height TEXT,
+    width TEXT,
+    depth TEXT,
+    watt TEXT,
+    environment TEXT,
+    color TEXT,
+    updatedAt TEXT
   )`);
 });
 
@@ -281,6 +301,52 @@ app.delete('/api/profiles/:name', requireApiToken, async (req, res) => {
       if (this.changes === 0) return res.status(404).json({ error: 'Profil non trouvé' });
       res.json({ success: true });
     });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Totem specs — single-row upsert (id always = 1)
+app.get('/api/totem-specs', async (req, res) => {
+  try {
+    if (usePg && pgClient) {
+      const { rows } = await pgClient.query('SELECT * FROM totem_specs WHERE id = 1');
+      return res.json(rows[0] || {});
+    }
+    sqliteDb.get('SELECT * FROM totem_specs WHERE id = 1', [], (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(row || {});
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/totem-specs', requireApiToken, async (req, res) => {
+  const { height, width, depth, watt, environment, color } = req.body;
+  const now = new Date().toISOString();
+  try {
+    if (usePg && pgClient) {
+      await pgClient.query(
+        `INSERT INTO totem_specs (id, height, width, depth, watt, environment, color, updatedAt)
+         VALUES (1, $1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (id) DO UPDATE SET height=EXCLUDED.height, width=EXCLUDED.width, depth=EXCLUDED.depth,
+           watt=EXCLUDED.watt, environment=EXCLUDED.environment, color=EXCLUDED.color, updatedAt=EXCLUDED.updatedAt`,
+        [height||'', width||'', depth||'', watt||'', environment||'', color||'', now]
+      );
+      return res.json({ height, width, depth, watt, environment, color, updatedAt: now });
+    }
+    sqliteDb.run(
+      `INSERT INTO totem_specs (id, height, width, depth, watt, environment, color, updatedAt)
+       VALUES (1,?,?,?,?,?,?,?)
+       ON CONFLICT(id) DO UPDATE SET height=excluded.height, width=excluded.width, depth=excluded.depth,
+         watt=excluded.watt, environment=excluded.environment, color=excluded.color, updatedAt=excluded.updatedAt`,
+      [height||'', width||'', depth||'', watt||'', environment||'', color||'', now],
+      function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ height, width, depth, watt, environment, color, updatedAt: now });
+      }
+    );
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

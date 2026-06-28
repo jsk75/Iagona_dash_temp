@@ -31,6 +31,24 @@
   margin: auto;
 }
 
+.totem-dims-overlay {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  background: rgba(0,0,0,0.52);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 10px;
+  color: rgba(255,255,255,0.65);
+  pointer-events: none;
+  z-index: 10;
+  line-height: 1.5;
+  backdrop-filter: blur(2px);
+  display: none;
+}
+.totem-dims-overlay.visible { display: block; }
+
 #totem-image {
   width: 100%;
   display: block;
@@ -578,6 +596,38 @@
       opacity: 0;
     }
 
+    .sidebar-accordion-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+    .sidebar-accordion-header:hover { opacity: 0.8; }
+    .sidebar-accordion-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      transition: transform 0.3s ease;
+      color: #4fc3f7;
+      font-size: 12px;
+    }
+    .sidebar-accordion-icon.collapsed { transform: rotate(-90deg); }
+    .sidebar-accordion-body {
+      max-height: 2000px;
+      overflow: hidden;
+      transition: max-height 0.4s ease, opacity 0.3s ease;
+      opacity: 1;
+      padding-top: 12px;
+    }
+    .sidebar-accordion-body.collapsed { max-height: 0; opacity: 0; padding-top: 0; }
+    .accordion-inner-sep {
+      border-top: 1px solid #2a2d3a;
+      margin: 12px 0 10px;
+    }
+
     .cards {
       display: flex;
       gap: 14px;
@@ -656,59 +706,63 @@
   </div>
 
   <div class="sidebar-section">
-    <div class="section-title">Pilotage Ventilateur</div>
-    <div class="mode-group">
-      <button id="btn-mode-auto" class="active">AUTO</button>
-      <button id="btn-mode-manu">MANUEL</button>
+    <div class="sidebar-accordion-header" id="ventilo-tab-toggle">
+      <div class="section-title" style="margin-bottom:0;">Ventilation</div>
+      <span class="sidebar-accordion-icon" id="ventilo-tab-icon">▼</span>
     </div>
+    <div class="sidebar-accordion-body" id="ventilo-tab-body">
 
-    <div class="slider-container" id="slider-block">
-      <label style="font-size: 12px; color:#aaa;">Vitesse désirée :</label>
-      <input type="range" id="slider-pwm" class="pwm-slider" min="0" max="100" value="0">
-      <div class="slider-val" id="slider-txt-val">0 %</div>
-    </div>
-  </div>
-
-  <div class="sidebar-section">
-    <div class="section-title">Retour d'état (ESP32)</div>
-    <div class="info-row">
-      <div class="info-label">Mode Actif :</div>
-      <div class="info-value" id="status-venti-mode" style="color: #4f4;">AUTO</div>
-    </div>
-    <div class="info-row">
-      <div class="info-label">Vitesse PWM :</div>
-      <div class="info-value" id="status-venti-pwm">-- %</div>
-    </div>
-    <div class="info-row">
-      <div class="info-label">Temp Max :</div>
-      <div class="info-value" id="status-venti-tmax">-- °C</div>
-    </div>
-  </div>
-
-  <div class="sidebar-section">
-    <div class="ventilo-header" id="ventilo-header-toggle">
-      <span class="ventilo-toggle-icon" id="ventilo-toggle-icon">v</span>
-      <div class="section-title" style="margin-bottom: 0;">Système de ventilation</div>
-    </div>
-
-    <div class="ventilo-content" id="ventilo-content">
-      <div class="debit-input-group">
-        <label for="ventilo-debit-input">Débit ventilateur (m³/h)</label>
-        <input id="ventilo-debit-input" type="number" placeholder="Ex: 100" value="100" min="0" step="1">
+      <div class="section-title">Pilotage Ventilateur</div>
+      <div class="mode-group">
+        <button id="btn-mode-auto" class="active">AUTO</button>
+        <button id="btn-mode-manu">MANUEL</button>
       </div>
-      <div class="debit-total-display">
-        Débit total: <span id="ventilo-debit-total">0</span> m³/h
+      <div class="slider-container" id="slider-block">
+        <label style="font-size: 12px; color:#aaa;">Vitesse désirée :</label>
+        <input type="range" id="slider-pwm" class="pwm-slider" min="0" max="100" value="0">
+        <div class="slider-val" id="slider-txt-val">0 %</div>
       </div>
 
-      <div class="ventilo-group">
-        <div class="ventilo-group-title">Ventilateurs Entrée</div>
-        <div class="ventilo-items" id="ventilo-entree-container"></div>
+      <div class="accordion-inner-sep"></div>
+
+      <div class="section-title">Retour d'état (ESP32)</div>
+      <div class="info-row">
+        <div class="info-label">Mode Actif :</div>
+        <div class="info-value" id="status-venti-mode" style="color: #4f4;">AUTO</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Vitesse PWM :</div>
+        <div class="info-value" id="status-venti-pwm">-- %</div>
+      </div>
+      <div class="info-row">
+        <div class="info-label">Temp Max :</div>
+        <div class="info-value" id="status-venti-tmax">-- °C</div>
       </div>
 
-      <div class="ventilo-group">
-        <div class="ventilo-group-title">Ventilateurs Sortie</div>
-        <div class="ventilo-items" id="ventilo-sortie-container"></div>
+      <div class="accordion-inner-sep"></div>
+
+      <div class="ventilo-header" id="ventilo-header-toggle">
+        <span class="ventilo-toggle-icon" id="ventilo-toggle-icon">▼</span>
+        <div class="section-title" style="margin-bottom: 0;">Système de ventilation</div>
       </div>
+      <div class="ventilo-content" id="ventilo-content">
+        <div class="debit-input-group">
+          <label for="ventilo-debit-input">Débit ventilateur (m³/h)</label>
+          <input id="ventilo-debit-input" type="number" placeholder="Ex: 100" value="100" min="0" step="1">
+        </div>
+        <div class="debit-total-display">
+          Débit total: <span id="ventilo-debit-total">0</span> m³/h
+        </div>
+        <div class="ventilo-group">
+          <div class="ventilo-group-title">Ventilateurs Entrée</div>
+          <div class="ventilo-items" id="ventilo-entree-container"></div>
+        </div>
+        <div class="ventilo-group">
+          <div class="ventilo-group-title">Ventilateurs Sortie</div>
+          <div class="ventilo-items" id="ventilo-sortie-container"></div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -857,6 +911,7 @@
 
   <div id="totem-container">
     <img id="totem-image" src="totem-clean.png" alt="Totem">
+    <div class="totem-dims-overlay" id="totem-dims-overlay"></div>
 
     <div class="sensor s1" data-id="1"><div class="sensor-dot"></div><div class="sensor-label" id="totem-temp-0">-- °C</div></div>
     <div class="sensor s2" data-id="2"><div class="sensor-dot"></div><div class="sensor-label" id="totem-temp-1">-- °C</div></div>

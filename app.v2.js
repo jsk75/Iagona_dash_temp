@@ -86,6 +86,12 @@ document.addEventListener('DOMContentLoaded', () => {
     ventiloHeaderToggle.addEventListener('click', () => toggleVentiloSection());
   }
 
+  // Toggle onglet ventilation (accordéon principal)
+  const ventiloTabToggle = document.getElementById('ventilo-tab-toggle');
+  if (ventiloTabToggle) {
+    ventiloTabToggle.addEventListener('click', () => toggleVentiloTab());
+  }
+
   // Spécifications du totem
   const specFields = [
     'totem-spec-height',
@@ -108,6 +114,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initTotemSensors();
   initialiserProfils();
   initialiserVentilateurs();
+  chargerSpecsTotem();
+  restaurerEtatVentiloTab();
   geolocalisationAutomatique();
   setInterval(recupererMeteo, 900000);
   demarrerMQTT();
@@ -217,6 +225,27 @@ function exporterExcel() {
     ws['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 18 }];
     XLSX.utils.book_append_sheet(wb, ws, getSondeLabel(i));
   });
+
+  // Onglet Fiche Totem avec specs
+  const specs = getSpecsTotemCourants();
+  const envLabel = { indoor: 'Indoor', outdoor: 'Outdoor' }[specs.environment] || specs.environment || '--';
+  const wsSpecs = XLSX.utils.aoa_to_sheet([
+    ['Fiche Totem', ''],
+    ['Exporté le', new Date().toLocaleString('fr-FR')],
+    ['', ''],
+    ['Dimensions', ''],
+    ['Hauteur (mm)', specs.height || '--'],
+    ['Largeur (mm)', specs.width || '--'],
+    ['Profondeur (mm)', specs.depth || '--'],
+    ['', ''],
+    ['Technique', ''],
+    ['Watt à dissiper', specs.watt ? `${specs.watt} W` : '--'],
+    ['Environnement', envLabel],
+    ['Couleur', specs.color || '--'],
+  ]);
+  wsSpecs['!cols'] = [{ wch: 22 }, { wch: 20 }];
+  XLSX.utils.book_append_sheet(wb, wsSpecs, 'Fiche Totem');
+
   XLSX.writeFile(wb, `temperatures_${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.xlsx`);
 }
 
@@ -242,6 +271,7 @@ const TOTEM_SELECTED_IMAGE_KEY = 'totem_selected_image';
 const TOTEM_DEFAULT_IMAGE = 'totem-clean.png';
 const VENTILO_STORAGE_KEY = 'ventilo_config';
 const VENTILO_COLLAPSED_KEY = 'ventilo_collapsed';
+const VENTILO_TAB_COLLAPSED_KEY = 'ventilo_tab_collapsed';
 const TOTEM_SPECS_KEY = 'totem_specs';
 let profilsEnregistres = {};
 let profilActuel = 'default';
@@ -1039,4 +1069,112 @@ function restaurerEtatVentiloSection() {
   } catch (e) {
     console.warn('Erreur lors de la restauration de l\'état ventilation', e);
   }
+}
+
+function toggleVentiloTab() {
+  const body = document.getElementById('ventilo-tab-body');
+  const icon = document.getElementById('ventilo-tab-icon');
+  if (body && icon) {
+    body.classList.toggle('collapsed');
+    icon.classList.toggle('collapsed');
+    const isCollapsed = body.classList.contains('collapsed');
+    localStorage.setItem(VENTILO_TAB_COLLAPSED_KEY, isCollapsed ? 'true' : 'false');
+  }
+}
+
+function restaurerEtatVentiloTab() {
+  try {
+    const isCollapsed = localStorage.getItem(VENTILO_TAB_COLLAPSED_KEY) === 'true';
+    const body = document.getElementById('ventilo-tab-body');
+    const icon = document.getElementById('ventilo-tab-icon');
+    if (body && icon && isCollapsed) {
+      body.classList.add('collapsed');
+      icon.classList.add('collapsed');
+    }
+  } catch (e) {
+    console.warn('Erreur lors de la restauration de l\'état onglet ventilation', e);
+  }
+}
+
+let _specsTotemDebounce = null;
+
+function afficherDimensionsTotem(specs) {
+  const overlay = document.getElementById('totem-dims-overlay');
+  if (!overlay) return;
+  const h = specs.height ? `${specs.height}` : null;
+  const w = specs.width ? `${specs.width}` : null;
+  const d = specs.depth ? `${specs.depth}` : null;
+  const parts = [];
+  if (h || w || d) parts.push(`${h||'?'} × ${w||'?'} × ${d||'?'} mm`);
+  if (specs.watt) parts.push(`${specs.watt} W`);
+  if (parts.length === 0) {
+    overlay.classList.remove('visible');
+    return;
+  }
+  overlay.innerHTML = parts.join('<br>');
+  overlay.classList.add('visible');
+}
+
+function _appliquerSpecsTotem(specs) {
+  const fields = [
+    ['totem-spec-height', specs.height],
+    ['totem-spec-width', specs.width],
+    ['totem-spec-depth', specs.depth],
+    ['totem-spec-watt', specs.watt],
+    ['totem-spec-environment', specs.environment],
+    ['totem-spec-color', specs.color]
+  ];
+  fields.forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el && value !== undefined && value !== null) el.value = value;
+  });
+  afficherDimensionsTotem(specs);
+}
+
+function _lireSpecsDepuisDOM() {
+  return {
+    height: document.getElementById('totem-spec-height')?.value || '',
+    width: document.getElementById('totem-spec-width')?.value || '',
+    depth: document.getElementById('totem-spec-depth')?.value || '',
+    watt: document.getElementById('totem-spec-watt')?.value || '',
+    environment: document.getElementById('totem-spec-environment')?.value || '',
+    color: document.getElementById('totem-spec-color')?.value || ''
+  };
+}
+
+function sauvegarderSpecsTotem() {
+  const specs = _lireSpecsDepuisDOM();
+  // cache local immédiat
+  localStorage.setItem(TOTEM_SPECS_KEY, JSON.stringify(specs));
+  afficherDimensionsTotem(specs);
+  // debounce pour ne pas spammer le serveur à chaque frappe
+  clearTimeout(_specsTotemDebounce);
+  _specsTotemDebounce = setTimeout(async () => {
+    await sendToServer('/api/totem-specs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(specs)
+    });
+  }, 800);
+}
+
+async function chargerSpecsTotem() {
+  // 1. Afficher le cache local immédiatement pour éviter le flash vide
+  try {
+    const cached = localStorage.getItem(TOTEM_SPECS_KEY);
+    if (cached) _appliquerSpecsTotem(JSON.parse(cached));
+  } catch (e) {}
+  // 2. Charger depuis le serveur (source de vérité)
+  const specs = await sendToServer('/api/totem-specs');
+  if (specs && typeof specs === 'object' && Object.keys(specs).length > 0) {
+    localStorage.setItem(TOTEM_SPECS_KEY, JSON.stringify(specs));
+    _appliquerSpecsTotem(specs);
+  }
+}
+
+function getSpecsTotemCourants() {
+  try {
+    const cached = localStorage.getItem(TOTEM_SPECS_KEY);
+    return cached ? JSON.parse(cached) : {};
+  } catch (e) { return {}; }
 }
