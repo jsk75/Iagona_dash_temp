@@ -339,6 +339,13 @@ async function buildExcelExportBuffer(payload = {}) {
   workbook.creator = 'GitHub Copilot';
   workbook.created = new Date();
 
+  const resolveSondeIndex = (entry) => {
+    const raw = entry && entry.sondeIdx !== undefined ? entry.sondeIdx : (entry ? entry.sondeidx : undefined);
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed)) return -1;
+    return parsed >= 0 && parsed < NB_SONDES ? parsed : -1;
+  };
+
   const allSheet = workbook.addWorksheet('Toutes sondes');
   allSheet.columns = [
     { header: 'Date', key: 'date', width: 14 },
@@ -347,15 +354,17 @@ async function buildExcelExportBuffer(payload = {}) {
     { header: 'Température (°C)', key: 'temp', width: 18 }
   ];
   logs.forEach(entry => {
-    const label = sensorLabels[entry.sondeIdx] || `Sonde ${entry.sondeIdx + 1}`;
-    allSheet.addRow({ date: entry.date, heure: entry.heure, sonde: label, temp: entry.temp });
+    const idx = resolveSondeIndex(entry);
+    const label = idx >= 0 ? (sensorLabels[idx] || `Sonde ${idx + 1}`) : (entry.label || 'Sonde inconnue');
+    const date = entry.date || '';
+    const heure = entry.heure || '';
+    allSheet.addRow({ date, heure, sonde: label, temp: entry.temp });
   });
 
   const grouped = Array.from({ length: NB_SONDES }, () => []);
   logs.forEach(entry => {
-    if (typeof entry.sondeIdx === 'number' && entry.sondeIdx >= 0 && entry.sondeIdx < NB_SONDES) {
-      grouped[entry.sondeIdx].push(entry);
-    }
+    const idx = resolveSondeIndex(entry);
+    if (idx >= 0) grouped[idx].push(entry);
   });
 
   grouped.forEach((entries, index) => {
@@ -366,7 +375,7 @@ async function buildExcelExportBuffer(payload = {}) {
       { header: 'Heure', key: 'heure', width: 12 },
       { header: 'Température (°C)', key: 'temp', width: 18 }
     ];
-    entries.forEach(entry => sheet.addRow({ date: entry.date, heure: entry.heure, temp: entry.temp }));
+    entries.forEach(entry => sheet.addRow({ date: entry.date || '', heure: entry.heure || '', temp: entry.temp }));
   });
 
   const summarySheet = workbook.addWorksheet('Tendances');
