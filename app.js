@@ -164,7 +164,9 @@ const TOPIC_ROOT = 'temperatures';
 const NB_SONDES = 5;     
 // When deployed on Render serve frontend and API from the same service.
 // Use an empty string for same-origin API calls (e.g. fetch('/api/...')).
-const API_BASE_URL = '';
+const API_BASE_URL = window.location.hostname === 'jsk75.github.io'
+  ? 'https://iagona-dash-temp-1.onrender.com'
+  : '';
 
 const COULEURS = ['#4fc3f7', '#81c784', '#ffb74d', '#ba68c8', '#e57373'];
 const NOMS = ["Sonde1", "Sonde2", "Sonde3", "Sonde4", "Sonde5"];
