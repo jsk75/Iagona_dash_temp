@@ -1887,68 +1887,90 @@ function calculerSurplusThermiqueIndicatif(specs = {}) {
       surplusWatt: 0,
       adjustedWatt,
       appliedRule: false,
-      reason: 'Indoor: pas de correction climatique appliquée.'
+      reason: 'Indoor: pas de correction climatique appliquée.',
+      details: null
     };
   }
 
   const orientationFactors = {
-    nord: 0.90,
-    est: 1.06,
-    sud: 1.18,
-    ouest: 1.10,
-    faible: 0.95,
-    moyenne: 1.02,
-    forte: 1.10,
-    directe: 1.16
+    nord: 0.65,
+    est: 0.90,
+    sud: 1.00,
+    ouest: 0.92,
+    faible: 0.45,
+    moyenne: 0.70,
+    forte: 0.90,
+    directe: 1.00
   };
-  const colorFactors = {
-    noir: 1.12,
-    blanc: 0.97,
-    gris: 1.03,
-    silver: 1.00,
-    bleu: 1.04,
-    rouge: 1.05,
-    vert: 1.02,
-    autre: 1.00
+  const absorptivityByColor = {
+    noir: 0.95,
+    blanc: 0.22,
+    gris: 0.55,
+    silver: 0.40,
+    bleu: 0.70,
+    rouge: 0.75,
+    vert: 0.65,
+    autre: 0.60
   };
 
-  const orientationFactor = orientationFactors[sunExposure] || 1;
-  const colorFactor = colorFactors[color] || 1;
+  const orientationFactor = orientationFactors[sunExposure] || 0.75;
+  const alpha = absorptivityByColor[color] || 0.60;
   const climate = getContexteClimatiquePourSurplus();
 
   const solar = Number(climate.solarMJm2Day);
   const wind = Number(climate.windKmh);
-  let solarFactor = 1;
-  let windFactor = 1;
-  let windMeta = null;
+  const meanG = Number.isFinite(solar) ? (solar * 11.574) : null; // MJ/m2/day -> W/m2 average
+  const gEffective = Number.isFinite(meanG) ? (meanG * orientationFactor) : null;
 
-  if (Number.isFinite(solar)) {
-    solarFactor = clamp(0.88 + (solar / 80), 0.90, 1.22);
-  }
+  const widthM = Number(specs.width) > 0 ? Number(specs.width) / 1000 : null;
+  const heightM = Number(specs.height) > 0 ? Number(specs.height) / 1000 : null;
+  const areaProjected = (widthM && heightM) ? Math.max(0.05, widthM * heightM) : 1.2;
+
+  const windMs = Number.isFinite(wind) ? Math.max(0, wind / 3.6) : 0;
+  const hConv = 5.7 + (3.8 * windMs);
+  const hRad = 6; // Hypothese acier peint: ordre de grandeur 5-8 W/m2K
+  const hTotal = hConv + hRad;
+
+  let windMeta = null;
   if (Number.isFinite(wind)) {
     windMeta = coefficientVentEurocodeEN1991_1_4(wind);
-    windFactor = windMeta.factor;
   }
 
-  const rawCoefficient = clamp(orientationFactor * colorFactor * solarFactor * windFactor, 0.85, 1.65);
-  const coefficient = Math.max(1, rawCoefficient);
+  const qSolar = Number.isFinite(gEffective) ? (alpha * gEffective * areaProjected) : 0;
+  const transmissionToInternal = 0.35; // part du flux solaire absorbé convertie en charge interne (estimatif)
+  const convectionAttenuation = clamp(11.7 / Math.max(8, hTotal), 0.45, 1.15);
+  const rawSurplus = qSolar * transmissionToInternal * convectionAttenuation;
+  const surplusWatt = Number(Math.max(0, rawSurplus).toFixed(1));
+
+  const adjustedWatt = Number((baseWatt + surplusWatt).toFixed(1));
+  const coefficient = Number((adjustedWatt / baseWatt).toFixed(3));
   const climateBits = [
     Number.isFinite(solar) ? `irradiation ${solar.toFixed(1)} MJ/m²/j` : null,
+    Number.isFinite(meanG) ? `G~${meanG.toFixed(0)} W/m²` : null,
     Number.isFinite(wind) ? `vent ${wind.toFixed(1)} km/h` : null,
     windMeta && Number.isFinite(windMeta.qSite) ? `qsite ${windMeta.qSite.toFixed(1)} N/m²` : null
   ].filter(Boolean);
   const climateTxt = climateBits.length ? climateBits.join(', ') : 'indices climatiques indisponibles';
-  const reason = `Estimé via orientation (${sunExposure || '--'}), couleur (${color || '--'}) et climat local (${climateTxt}) pour ${climate.city || villeActuelle}. Vent pondéré selon EN 1991-1-4.`;
-
-  const adjustedWatt = Number((baseWatt * coefficient).toFixed(1));
-  const surplusWatt = Number((adjustedWatt - baseWatt).toFixed(1));
+  const reason = `Surplus basé sur Qsolaire=alpha*G*Aproj (acier), convection h=5.7+3.8V, hrad~6 et vent EN 1991-1-4. Params: alpha=${alpha.toFixed(2)}, Aproj=${areaProjected.toFixed(2)} m², ${climateTxt}, ville ${climate.city || villeActuelle}.`;
   return {
     baseWatt,
     coefficient,
     surplusWatt,
     adjustedWatt,
     appliedRule: coefficient > 1,
-    reason
+    reason,
+    details: {
+      alpha,
+      meanG,
+      gEffective,
+      areaProjected,
+      hConv,
+      hRad,
+      hTotal,
+      qSolar,
+      transmissionToInternal,
+      convectionAttenuation
+    }
   };
 }
 
@@ -1957,7 +1979,8 @@ function mettreAJourSurplusThermiqueIndicatif(specs = {}) {
   const noteEl = document.getElementById('totem-thermal-indicative-note');
   const solarEl = document.getElementById('totem-solar-indicative-value');
   const windEl = document.getElementById('totem-wind-indicative-value');
-  if (!valueEl || !noteEl || !solarEl || !windEl) return;
+  const breakdownEl = document.getElementById('totem-thermal-breakdown-value');
+  if (!valueEl || !noteEl || !solarEl || !windEl || !breakdownEl) return;
 
   const result = calculerSurplusThermiqueIndicatif(specs);
   const climate = getContexteClimatiquePourSurplus();
@@ -1980,6 +2003,7 @@ function mettreAJourSurplusThermiqueIndicatif(specs = {}) {
 
   if (result.adjustedWatt === null) {
     valueEl.textContent = 'Watt déclaré + surplus = total estimé: --';
+    breakdownEl.textContent = 'Détail calcul: --';
     noteEl.textContent = 'Indicatif uniquement. Le débit nominal ventilateur reste manuel.';
     return;
   }
@@ -1987,6 +2011,20 @@ function mettreAJourSurplusThermiqueIndicatif(specs = {}) {
   const coeffTxt = result.coefficient.toFixed(2);
   const surplusTxt = result.surplusWatt > 0 ? `+${result.surplusWatt}` : '0.0';
   valueEl.textContent = `Watt déclaré + surplus = total estimé: ${result.baseWatt.toFixed(1)} W + ${surplusTxt} W = ${result.adjustedWatt} W (coef ${coeffTxt})`;
+  if (result.details) {
+    const d = result.details;
+    const alphaTxt = Number.isFinite(d.alpha) ? d.alpha.toFixed(2) : '--';
+    const meanGTxt = Number.isFinite(d.meanG) ? d.meanG.toFixed(0) : '--';
+    const geffTxt = Number.isFinite(d.gEffective) ? d.gEffective.toFixed(0) : '--';
+    const aprojTxt = Number.isFinite(d.areaProjected) ? d.areaProjected.toFixed(2) : '--';
+    const hConvTxt = Number.isFinite(d.hConv) ? d.hConv.toFixed(1) : '--';
+    const hRadTxt = Number.isFinite(d.hRad) ? d.hRad.toFixed(1) : '--';
+    const qSolarTxt = Number.isFinite(d.qSolar) ? d.qSolar.toFixed(1) : '--';
+    const attTxt = Number.isFinite(d.convectionAttenuation) ? d.convectionAttenuation.toFixed(2) : '--';
+    breakdownEl.textContent = `Détail calcul: alpha=${alphaTxt}, G=${meanGTxt} W/m², Geff=${geffTxt} W/m², Aproj=${aprojTxt} m², h=${hConvTxt} W/m²K, hrad=${hRadTxt} W/m²K, Qsolaire=${qSolarTxt} W, atténuation=${attTxt}.`;
+  } else {
+    breakdownEl.textContent = 'Détail calcul: non applicable en indoor.';
+  }
   noteEl.textContent = `${result.reason} Le débit nominal ventilateur reste modifiable manuellement.`;
 }
 

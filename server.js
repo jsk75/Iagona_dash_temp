@@ -251,7 +251,8 @@ function computeIndicativeThermal(specs = {}, weatherContext = {}) {
       coefficient: 1,
       adjustedWatt: null,
       surplusWatt: null,
-      note: 'Watt non renseigné.'
+      note: 'Watt non renseigné.',
+      details: null
     };
   }
 
@@ -264,67 +265,89 @@ function computeIndicativeThermal(specs = {}, weatherContext = {}) {
       coefficient: 1,
       adjustedWatt: Number(baseWatt.toFixed(1)),
       surplusWatt: 0,
-      note: 'Indoor: pas de correction climatique appliquée.'
+      note: 'Indoor: pas de correction climatique appliquée.',
+      details: null
     };
   }
 
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   const orientationFactors = {
-    nord: 0.90,
-    est: 1.06,
-    sud: 1.18,
-    ouest: 1.10,
-    faible: 0.95,
-    moyenne: 1.02,
-    forte: 1.10,
-    directe: 1.16
+    nord: 0.65,
+    est: 0.90,
+    sud: 1.00,
+    ouest: 0.92,
+    faible: 0.45,
+    moyenne: 0.70,
+    forte: 0.90,
+    directe: 1.00
   };
-  const colorFactors = {
-    noir: 1.12,
-    blanc: 0.97,
-    gris: 1.03,
-    silver: 1.00,
-    bleu: 1.04,
-    rouge: 1.05,
-    vert: 1.02,
-    autre: 1.00
+  const absorptivityByColor = {
+    noir: 0.95,
+    blanc: 0.22,
+    gris: 0.55,
+    silver: 0.40,
+    bleu: 0.70,
+    rouge: 0.75,
+    vert: 0.65,
+    autre: 0.60
   };
 
-  const orientationFactor = orientationFactors[sunExposure] || 1;
-  const colorFactor = colorFactors[color] || 1;
+  const orientationFactor = orientationFactors[sunExposure] || 0.75;
+  const alpha = absorptivityByColor[color] || 0.60;
   const solar = Number(weatherContext && weatherContext.solarMJm2Day);
   const wind = Number(weatherContext && weatherContext.windKmh);
 
-  let solarFactor = 1;
-  if (Number.isFinite(solar)) {
-    solarFactor = clamp(0.88 + (solar / 80), 0.90, 1.22);
-  }
+  const meanG = Number.isFinite(solar) ? (solar * 11.574) : null;
+  const gEffective = Number.isFinite(meanG) ? (meanG * orientationFactor) : null;
 
-  let windFactor = 1;
+  const widthM = Number(specs.width) > 0 ? Number(specs.width) / 1000 : null;
+  const heightM = Number(specs.height) > 0 ? Number(specs.height) / 1000 : null;
+  const areaProjected = (widthM && heightM) ? Math.max(0.05, widthM * heightM) : 1.2;
+
+  const windMs = Number.isFinite(wind) ? Math.max(0, wind / 3.6) : 0;
+  const hConv = 5.7 + (3.8 * windMs);
+  const hRad = 6;
+  const hTotal = hConv + hRad;
+
   let qSite = null;
   if (Number.isFinite(wind) && wind > 0) {
     const rho = 1.225;
     const vSite = Math.max(0.5, wind / 3.6);
-    const vRef = 25 / 3.6;
     qSite = 0.5 * rho * vSite * vSite;
-    const qRef = 0.5 * rho * vRef * vRef;
-    const ratio = qSite / qRef;
-    windFactor = clamp(Math.pow(ratio, -0.12), 0.88, 1.08);
   }
 
-  const rawCoefficient = clamp(orientationFactor * colorFactor * solarFactor * windFactor, 0.85, 1.65);
-  const coefficient = Math.max(1, rawCoefficient);
+  const qSolar = Number.isFinite(gEffective) ? (alpha * gEffective * areaProjected) : 0;
+  const transmissionToInternal = 0.35;
+  const convectionAttenuation = clamp(11.7 / Math.max(8, hTotal), 0.45, 1.15);
+  const surplusWatt = Number(Math.max(0, qSolar * transmissionToInternal * convectionAttenuation).toFixed(1));
+  const adjustedWatt = Number((baseWatt + surplusWatt).toFixed(1));
+  const coefficient = Number((adjustedWatt / baseWatt).toFixed(3));
 
   const climateBits = [
     Number.isFinite(solar) ? `irradiation ${solar.toFixed(1)} MJ/m²/j` : null,
+    Number.isFinite(meanG) ? `G~${meanG.toFixed(0)} W/m²` : null,
     Number.isFinite(wind) ? `vent ${wind.toFixed(1)} km/h` : null,
     Number.isFinite(qSite) ? `qsite ${qSite.toFixed(1)} N/m²` : null
   ].filter(Boolean);
-  const note = `Estimé via orientation (${sunExposure || '--'}), couleur (${color || '--'}) et climat local (${climateBits.join(', ') || 'indices indisponibles'}). Vent pondéré selon EN 1991-1-4.`;
-
-  const adjustedWatt = Number((baseWatt * coefficient).toFixed(1));
-  const surplusWatt = Number((adjustedWatt - baseWatt).toFixed(1));
-  return { coefficient, adjustedWatt, surplusWatt, note };
+  const note = `Surplus basé sur Qsolaire=alpha*G*Aproj (acier), convection h=5.7+3.8V, hrad~6 et vent EN 1991-1-4. Params: alpha=${alpha.toFixed(2)}, Aproj=${areaProjected.toFixed(2)} m², ${climateBits.join(', ') || 'indices indisponibles'}.`;
+  return {
+    coefficient,
+    adjustedWatt,
+    surplusWatt,
+    note,
+    details: {
+      alpha,
+      meanG,
+      gEffective,
+      areaProjected,
+      hConv,
+      hRad,
+      hTotal,
+      qSolar,
+      transmissionToInternal,
+      convectionAttenuation
+    }
+  };
 }
 
 function parseMaybeJson(value, fallback) {
@@ -512,6 +535,9 @@ async function buildExcelExportBuffer(payload = {}) {
   specsSheet.columns = [{ width: 24 }, { width: 36 }];
   const resolvedSpecs = specs || {};
   const thermalIndicative = computeIndicativeThermal(resolvedSpecs, weatherContext || {});
+  const thermalDetails = thermalIndicative.details
+    ? `alpha=${Number(thermalIndicative.details.alpha).toFixed(2)}, G=${Number(thermalIndicative.details.meanG).toFixed(0)} W/m², Geff=${Number(thermalIndicative.details.gEffective).toFixed(0)} W/m², Aproj=${Number(thermalIndicative.details.areaProjected).toFixed(2)} m², h=${Number(thermalIndicative.details.hConv).toFixed(1)} W/m²K, hrad=${Number(thermalIndicative.details.hRad).toFixed(1)} W/m²K, Qsolaire=${Number(thermalIndicative.details.qSolar).toFixed(1)} W, attenuation=${Number(thermalIndicative.details.convectionAttenuation).toFixed(2)}`
+    : '--';
   const envLabel = { indoor: 'Indoor', outdoor: 'Outdoor' }[resolvedSpecs.environment] || resolvedSpecs.environment || '--';
   const exposureLabel = resolvedSpecs.environment === 'outdoor' ? (resolvedSpecs.sunExposure || '--') : '--';
   [
@@ -529,6 +555,7 @@ async function buildExcelExportBuffer(payload = {}) {
     ['Coefficient thermique indicatif', thermalIndicative.adjustedWatt === null ? '--' : thermalIndicative.coefficient.toFixed(2)],
     ['Watt ajusté indicatif', thermalIndicative.adjustedWatt === null ? '--' : `${thermalIndicative.adjustedWatt} W`],
     ['Surplus thermique indicatif', thermalIndicative.surplusWatt === null ? '--' : `${thermalIndicative.surplusWatt > 0 ? '+' : ''}${thermalIndicative.surplusWatt} W`],
+    ['Détail calcul thermique', thermalDetails],
     ['Environnement', envLabel],
     ['Couleur', resolvedSpecs.environment === 'outdoor' ? (resolvedSpecs.color || '--') : '--'],
     ['Exposition au soleil', exposureLabel],
