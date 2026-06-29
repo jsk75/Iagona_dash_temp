@@ -197,6 +197,15 @@ let modeSelectionne = "AUTO";
 let latActuelle = 48.8566;
 let lonActuelle = 2.3522;
 let villeActuelle = "Paris (Défaut)";
+let contexteClimatiqueSurplus = {
+  city: villeActuelle,
+  latitude: latActuelle,
+  longitude: lonActuelle,
+  solarMJm2Day: null,
+  windKmh: null,
+  source: 'pending',
+  updatedAt: null
+};
 
 function toggleSidebar(open) {
   const sidebar = document.getElementById('sidebar');
@@ -533,6 +542,7 @@ async function exporterExcelDepuisServeur() {
     colors: [...COULEURS],
     exportedAt: new Date().toISOString(),
     sensorTargets: getSondeTargetsCourants(),
+    weatherContext: getContexteClimatiquePourSurplus(),
     report,
     reportRange: {
       mode: rangeSelect ? rangeSelect.value : '24h',
@@ -1353,6 +1363,7 @@ async function recupererMeteo() {
     while (donneesExterieures.length > 5000) donneesExterieures.shift();
     document.getElementById('meteo-status').textContent = `Mis à jour à ${new Date().toLocaleTimeString('fr-FR')}`;
     divMeteo.classList.add('active');
+    await rafraichirContexteClimatiqueLocalisation(false);
   } catch (error) {
     document.getElementById('meteo-status').textContent = "Erreur météo";
   }
@@ -1739,6 +1750,88 @@ function restaurerEtatVentiloGroups() {
 
 let _specsTotemDebounce = null;
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function moyenneNumerique(values = []) {
+  const nums = values.map(v => Number(v)).filter(v => Number.isFinite(v));
+  if (!nums.length) return null;
+  return nums.reduce((sum, v) => sum + v, 0) / nums.length;
+}
+
+function coefficientVentEurocodeEN1991_1_4(windKmh) {
+  const vKmh = Number(windKmh);
+  if (!Number.isFinite(vKmh) || vKmh <= 0) {
+    return { factor: 1, qRef: null, qSite: null, source: 'EN 1991-1-4 (non disponible)' };
+  }
+
+  const rho = 1.225;
+  const vSite = Math.max(0.5, vKmh / 3.6);
+  const vRef = 25 / 3.6;
+  const qSite = 0.5 * rho * vSite * vSite;
+  const qRef = 0.5 * rho * vRef * vRef;
+  const ratio = qSite / qRef;
+  const factor = clamp(Math.pow(ratio, -0.12), 0.88, 1.08);
+  return { factor, qRef, qSite, source: 'EN 1991-1-4 (q = 0.5*rho*v^2)' };
+}
+
+function getContexteClimatiquePourSurplus() {
+  return {
+    city: contexteClimatiqueSurplus.city || villeActuelle || '',
+    latitude: Number.isFinite(Number(contexteClimatiqueSurplus.latitude)) ? Number(contexteClimatiqueSurplus.latitude) : null,
+    longitude: Number.isFinite(Number(contexteClimatiqueSurplus.longitude)) ? Number(contexteClimatiqueSurplus.longitude) : null,
+    solarMJm2Day: Number.isFinite(Number(contexteClimatiqueSurplus.solarMJm2Day)) ? Number(contexteClimatiqueSurplus.solarMJm2Day) : null,
+    windKmh: Number.isFinite(Number(contexteClimatiqueSurplus.windKmh)) ? Number(contexteClimatiqueSurplus.windKmh) : null,
+    source: contexteClimatiqueSurplus.source || 'fallback',
+    updatedAt: contexteClimatiqueSurplus.updatedAt || null
+  };
+}
+
+async function rafraichirContexteClimatiqueLocalisation(force = false) {
+  const lat = Number(latActuelle);
+  const lon = Number(lonActuelle);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+  const nowMs = Date.now();
+  const previousTs = contexteClimatiqueSurplus.updatedAt ? new Date(contexteClimatiqueSurplus.updatedAt).getTime() : 0;
+  const isSameSpot = Number(contexteClimatiqueSurplus.latitude) === lat && Number(contexteClimatiqueSurplus.longitude) === lon;
+  if (!force && isSameSpot && previousTs && (nowMs - previousTs) < (6 * 60 * 60 * 1000)) {
+    return;
+  }
+
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=shortwave_radiation_sum,wind_speed_10m_max&timezone=auto&forecast_days=7`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Erreur API climat locale');
+    const data = await res.json();
+    const solarAvg = moyenneNumerique((data.daily && data.daily.shortwave_radiation_sum) || []);
+    const windAvg = moyenneNumerique((data.daily && data.daily.wind_speed_10m_max) || []);
+
+    contexteClimatiqueSurplus = {
+      city: villeActuelle,
+      latitude: lat,
+      longitude: lon,
+      solarMJm2Day: solarAvg,
+      windKmh: windAvg,
+      source: 'open-meteo forecast daily',
+      updatedAt: new Date().toISOString()
+    };
+  } catch (e) {
+    contexteClimatiqueSurplus = {
+      city: villeActuelle,
+      latitude: lat,
+      longitude: lon,
+      solarMJm2Day: contexteClimatiqueSurplus.solarMJm2Day,
+      windKmh: contexteClimatiqueSurplus.windKmh,
+      source: 'fallback (meteo city only)',
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  afficherDimensionsTotem(_lireSpecsDepuisDOM());
+}
+
 function calculerSurplusThermiqueIndicatif(specs = {}) {
   const baseWatt = Number(specs.watt);
   if (!Number.isFinite(baseWatt) || baseWatt <= 0) {
@@ -1756,13 +1849,65 @@ function calculerSurplusThermiqueIndicatif(specs = {}) {
   const color = String(specs.color || '').toLowerCase();
   const sunExposure = String(specs.sunExposure || '').toLowerCase();
 
-  let coefficient = 1;
-  let reason = 'Aucun surplus automatique appliqué.';
-
-  if (environment === 'outdoor' && color === 'noir' && sunExposure === 'sud') {
-    coefficient = 1.15;
-    reason = 'Règle appliquée: Outdoor + Noir + Sud = +15% (indicatif).';
+  if (environment !== 'outdoor') {
+    const adjustedWatt = Number(baseWatt.toFixed(1));
+    return {
+      baseWatt,
+      coefficient: 1,
+      surplusWatt: 0,
+      adjustedWatt,
+      appliedRule: false,
+      reason: 'Indoor: pas de correction climatique appliquée.'
+    };
   }
+
+  const orientationFactors = {
+    nord: 0.90,
+    est: 1.06,
+    sud: 1.18,
+    ouest: 1.10,
+    faible: 0.95,
+    moyenne: 1.02,
+    forte: 1.10,
+    directe: 1.16
+  };
+  const colorFactors = {
+    noir: 1.12,
+    blanc: 0.97,
+    gris: 1.03,
+    silver: 1.00,
+    bleu: 1.04,
+    rouge: 1.05,
+    vert: 1.02,
+    autre: 1.00
+  };
+
+  const orientationFactor = orientationFactors[sunExposure] || 1;
+  const colorFactor = colorFactors[color] || 1;
+  const climate = getContexteClimatiquePourSurplus();
+
+  const solar = Number(climate.solarMJm2Day);
+  const wind = Number(climate.windKmh);
+  let solarFactor = 1;
+  let windFactor = 1;
+  let windMeta = null;
+
+  if (Number.isFinite(solar)) {
+    solarFactor = clamp(0.88 + (solar / 80), 0.90, 1.22);
+  }
+  if (Number.isFinite(wind)) {
+    windMeta = coefficientVentEurocodeEN1991_1_4(wind);
+    windFactor = windMeta.factor;
+  }
+
+  const coefficient = clamp(orientationFactor * colorFactor * solarFactor * windFactor, 0.85, 1.65);
+  const climateBits = [
+    Number.isFinite(solar) ? `irradiation ${solar.toFixed(1)} MJ/m²/j` : null,
+    Number.isFinite(wind) ? `vent ${wind.toFixed(1)} km/h` : null,
+    windMeta && Number.isFinite(windMeta.qSite) ? `qsite ${windMeta.qSite.toFixed(1)} N/m²` : null
+  ].filter(Boolean);
+  const climateTxt = climateBits.length ? climateBits.join(', ') : 'indices climatiques indisponibles';
+  const reason = `Estimé via orientation (${sunExposure || '--'}), couleur (${color || '--'}) et climat local (${climateTxt}) pour ${climate.city || villeActuelle}. Vent pondéré selon EN 1991-1-4.`;
 
   const adjustedWatt = Number((baseWatt * coefficient).toFixed(1));
   const surplusWatt = Number((adjustedWatt - baseWatt).toFixed(1));
@@ -1779,9 +1924,29 @@ function calculerSurplusThermiqueIndicatif(specs = {}) {
 function mettreAJourSurplusThermiqueIndicatif(specs = {}) {
   const valueEl = document.getElementById('totem-thermal-indicative-value');
   const noteEl = document.getElementById('totem-thermal-indicative-note');
-  if (!valueEl || !noteEl) return;
+  const solarEl = document.getElementById('totem-solar-indicative-value');
+  const windEl = document.getElementById('totem-wind-indicative-value');
+  if (!valueEl || !noteEl || !solarEl || !windEl) return;
 
   const result = calculerSurplusThermiqueIndicatif(specs);
+  const climate = getContexteClimatiquePourSurplus();
+  const solar = Number(climate.solarMJm2Day);
+  const wind = Number(climate.windKmh);
+  const windMeta = Number.isFinite(wind) ? coefficientVentEurocodeEN1991_1_4(wind) : null;
+
+  if (Number.isFinite(solar)) {
+    const meanWm2 = solar * 11.574;
+    solarEl.textContent = `Rayonnement solaire estimé: ${solar.toFixed(1)} MJ/m²/j (~${meanWm2.toFixed(0)} W/m² moyen) - ${climate.city || villeActuelle}`;
+  } else {
+    solarEl.textContent = 'Rayonnement solaire estimé: --';
+  }
+
+  if (windMeta && Number.isFinite(windMeta.qSite)) {
+    windEl.textContent = `Indice vent (EN 1991-1-4): ${wind.toFixed(1)} km/h, q=${windMeta.qSite.toFixed(1)} N/m²`;
+  } else {
+    windEl.textContent = 'Indice vent (EN 1991-1-4): --';
+  }
+
   if (result.adjustedWatt === null) {
     valueEl.textContent = 'Watt ajusté indicatif: --';
     noteEl.textContent = 'Indicatif uniquement. Le débit nominal ventilateur reste manuel.';

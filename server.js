@@ -244,7 +244,7 @@ function trendLabel(values) {
   return 'Stable';
 }
 
-function computeIndicativeThermal(specs = {}) {
+function computeIndicativeThermal(specs = {}, weatherContext = {}) {
   const baseWatt = Number(specs.watt);
   if (!Number.isFinite(baseWatt) || baseWatt <= 0) {
     return {
@@ -259,12 +259,67 @@ function computeIndicativeThermal(specs = {}) {
   const color = String(specs.color || '').toLowerCase();
   const sunExposure = String(specs.sunExposure || '').toLowerCase();
 
-  let coefficient = 1;
-  let note = 'Aucun surplus automatique appliqué.';
-  if (environment === 'outdoor' && color === 'noir' && sunExposure === 'sud') {
-    coefficient = 1.15;
-    note = 'Règle appliquée: Outdoor + Noir + Sud = +15% (indicatif).';
+  if (environment !== 'outdoor') {
+    return {
+      coefficient: 1,
+      adjustedWatt: Number(baseWatt.toFixed(1)),
+      surplusWatt: 0,
+      note: 'Indoor: pas de correction climatique appliquée.'
+    };
   }
+
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  const orientationFactors = {
+    nord: 0.90,
+    est: 1.06,
+    sud: 1.18,
+    ouest: 1.10,
+    faible: 0.95,
+    moyenne: 1.02,
+    forte: 1.10,
+    directe: 1.16
+  };
+  const colorFactors = {
+    noir: 1.12,
+    blanc: 0.97,
+    gris: 1.03,
+    silver: 1.00,
+    bleu: 1.04,
+    rouge: 1.05,
+    vert: 1.02,
+    autre: 1.00
+  };
+
+  const orientationFactor = orientationFactors[sunExposure] || 1;
+  const colorFactor = colorFactors[color] || 1;
+  const solar = Number(weatherContext && weatherContext.solarMJm2Day);
+  const wind = Number(weatherContext && weatherContext.windKmh);
+
+  let solarFactor = 1;
+  if (Number.isFinite(solar)) {
+    solarFactor = clamp(0.88 + (solar / 80), 0.90, 1.22);
+  }
+
+  let windFactor = 1;
+  let qSite = null;
+  if (Number.isFinite(wind) && wind > 0) {
+    const rho = 1.225;
+    const vSite = Math.max(0.5, wind / 3.6);
+    const vRef = 25 / 3.6;
+    qSite = 0.5 * rho * vSite * vSite;
+    const qRef = 0.5 * rho * vRef * vRef;
+    const ratio = qSite / qRef;
+    windFactor = clamp(Math.pow(ratio, -0.12), 0.88, 1.08);
+  }
+
+  const coefficient = clamp(orientationFactor * colorFactor * solarFactor * windFactor, 0.85, 1.65);
+
+  const climateBits = [
+    Number.isFinite(solar) ? `irradiation ${solar.toFixed(1)} MJ/m²/j` : null,
+    Number.isFinite(wind) ? `vent ${wind.toFixed(1)} km/h` : null,
+    Number.isFinite(qSite) ? `qsite ${qSite.toFixed(1)} N/m²` : null
+  ].filter(Boolean);
+  const note = `Estimé via orientation (${sunExposure || '--'}), couleur (${color || '--'}) et climat local (${climateBits.join(', ') || 'indices indisponibles'}). Vent pondéré selon EN 1991-1-4.`;
 
   const adjustedWatt = Number((baseWatt * coefficient).toFixed(1));
   const surplusWatt = Number((adjustedWatt - baseWatt).toFixed(1));
@@ -374,6 +429,7 @@ async function buildExcelExportBuffer(payload = {}) {
     sensorTargets = [],
     report = null,
     reportRange = null,
+    weatherContext = null,
     specs = null,
     runtimeConfig = null,
     exportedAt = new Date().toISOString()
@@ -454,7 +510,7 @@ async function buildExcelExportBuffer(payload = {}) {
   const specsSheet = workbook.addWorksheet('Fiche Totem');
   specsSheet.columns = [{ width: 24 }, { width: 36 }];
   const resolvedSpecs = specs || {};
-  const thermalIndicative = computeIndicativeThermal(resolvedSpecs);
+  const thermalIndicative = computeIndicativeThermal(resolvedSpecs, weatherContext || {});
   const envLabel = { indoor: 'Indoor', outdoor: 'Outdoor' }[resolvedSpecs.environment] || resolvedSpecs.environment || '--';
   const exposureLabel = resolvedSpecs.environment === 'outdoor' ? (resolvedSpecs.sunExposure || '--') : '--';
   [
@@ -898,6 +954,7 @@ app.post('/api/export/excel', async (req, res) => {
       sensorLabels: req.body && req.body.sensorLabels,
       colors: req.body && req.body.colors,
       sensorTargets: req.body && req.body.sensorTargets,
+      weatherContext: req.body && req.body.weatherContext,
       report: req.body && req.body.report,
       specs: resolvedSpecs,
       runtimeConfig: runtimeState,
