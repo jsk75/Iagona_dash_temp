@@ -536,6 +536,7 @@ async function genererRapportTest() {
 
 async function exporterExcelDepuisServeur() {
   const report = await genererRapportTest();
+  const currentSpecs = _lireSpecsDepuisDOM();
   const rangeSelect = document.getElementById('report-range-select');
   const rangeStart = document.getElementById('report-range-start');
   const rangeEnd = document.getElementById('report-range-end');
@@ -544,6 +545,7 @@ async function exporterExcelDepuisServeur() {
     sensorLabels: Array.from({ length: NB_SONDES }, (_, index) => getSondeLabel(index)),
     colors: [...COULEURS],
     exportedAt: new Date().toISOString(),
+    totemName: (currentSpecs && currentSpecs.name ? String(currentSpecs.name).trim() : ''),
     sensorTargets: getSondeTargetsCourants(),
     weatherContext: getContexteClimatiquePourSurplus(),
     report,

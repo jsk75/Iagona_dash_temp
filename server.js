@@ -152,7 +152,9 @@ if (usePg) {
   initPg().then(() => console.log('Connected to Postgres')).catch(err => console.error('PG init error', err));
 }
 
-app.use(cors());
+app.use(cors({
+  exposedHeaders: ['Content-Disposition']
+}));
 app.use(express.json({ limit: '15mb' }));
 app.use(express.static(path.join(__dirname)));
 app.get('/favicon.ico', (req, res) => res.status(204).end());
@@ -1009,7 +1011,7 @@ app.post('/api/export/excel', async (req, res) => {
       exportedAt: req.body && req.body.exportedAt
     });
 
-    const rawTotemName = String((resolvedSpecs && resolvedSpecs.name) || '').trim();
+    const rawTotemName = String((req.body && req.body.totemName) || (resolvedSpecs && resolvedSpecs.name) || '').trim();
     const safeTotemName = rawTotemName
       ? rawTotemName
           .normalize('NFD')
