@@ -245,6 +245,12 @@ function trendLabel(values) {
 }
 
 function computeIndicativeThermal(specs = {}, weatherContext = {}) {
+  const parseMmToM = (value) => {
+    const normalized = String(value ?? '').replace(',', '.').trim();
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed / 1000 : null;
+  };
+
   const baseWatt = Number(specs.watt);
   if (!Number.isFinite(baseWatt) || baseWatt <= 0) {
     return {
@@ -300,9 +306,20 @@ function computeIndicativeThermal(specs = {}, weatherContext = {}) {
   const meanG = Number.isFinite(solar) ? (solar * 11.574) : null;
   const gEffective = Number.isFinite(meanG) ? (meanG * orientationFactor) : null;
 
-  const widthM = Number(specs.width) > 0 ? Number(specs.width) / 1000 : null;
-  const heightM = Number(specs.height) > 0 ? Number(specs.height) / 1000 : null;
-  const areaProjected = (widthM && heightM) ? Math.max(0.05, widthM * heightM) : 1.2;
+  const widthM = parseMmToM(specs.width);
+  const heightM = parseMmToM(specs.height);
+  const depthM = parseMmToM(specs.depth);
+  const hasFullDims = !!(widthM && heightM && depthM);
+  const faceFront = hasFullDims ? (widthM * heightM) : null;
+  const faceSide = hasFullDims ? (depthM * heightM) : null;
+  let areaProjectedBase = hasFullDims ? faceFront : 1.2;
+  if (hasFullDims && (sunExposure === 'est' || sunExposure === 'ouest')) {
+    areaProjectedBase = faceSide;
+  }
+  const areaProjected = Math.max(0.05, areaProjectedBase);
+  const areaTotal = hasFullDims
+    ? Math.max(0.2, 2 * ((widthM * heightM) + (heightM * depthM) + (widthM * depthM)))
+    : 3.6;
 
   const windMs = Number.isFinite(wind) ? Math.max(0, wind / 3.6) : 0;
   const hConv = 5.7 + (3.8 * windMs);
@@ -319,7 +336,9 @@ function computeIndicativeThermal(specs = {}, weatherContext = {}) {
   const qSolar = Number.isFinite(gEffective) ? (alpha * gEffective * areaProjected) : 0;
   const transmissionToInternal = 0.35;
   const convectionAttenuation = clamp(11.7 / Math.max(8, hTotal), 0.45, 1.15);
-  const surplusWatt = Number(Math.max(0, qSolar * transmissionToInternal * convectionAttenuation).toFixed(1));
+  const projectedToTotalRatio = areaProjected / areaTotal;
+  const geometricFactor = clamp(projectedToTotalRatio / 0.22, 0.70, 1.35);
+  const surplusWatt = Number(Math.max(0, qSolar * transmissionToInternal * convectionAttenuation * geometricFactor).toFixed(1));
   const adjustedWatt = Number((baseWatt + surplusWatt).toFixed(1));
   const coefficient = Number((adjustedWatt / baseWatt).toFixed(3));
 
@@ -340,6 +359,11 @@ function computeIndicativeThermal(specs = {}, weatherContext = {}) {
       meanG,
       gEffective,
       areaProjected,
+      areaTotal,
+      geometricFactor,
+      widthM,
+      heightM,
+      depthM,
       hConv,
       hRad,
       hTotal,
@@ -536,7 +560,7 @@ async function buildExcelExportBuffer(payload = {}) {
   const resolvedSpecs = specs || {};
   const thermalIndicative = computeIndicativeThermal(resolvedSpecs, weatherContext || {});
   const thermalDetails = thermalIndicative.details
-    ? `alpha=${Number(thermalIndicative.details.alpha).toFixed(2)}, G=${Number(thermalIndicative.details.meanG).toFixed(0)} W/m², Geff=${Number(thermalIndicative.details.gEffective).toFixed(0)} W/m², Aproj=${Number(thermalIndicative.details.areaProjected).toFixed(2)} m², h=${Number(thermalIndicative.details.hConv).toFixed(1)} W/m²K, hrad=${Number(thermalIndicative.details.hRad).toFixed(1)} W/m²K, Qsolaire=${Number(thermalIndicative.details.qSolar).toFixed(1)} W, attenuation=${Number(thermalIndicative.details.convectionAttenuation).toFixed(2)}`
+    ? `dims=${Number(thermalIndicative.details.heightM).toFixed(2)}x${Number(thermalIndicative.details.widthM).toFixed(2)}x${Number(thermalIndicative.details.depthM).toFixed(2)} m, alpha=${Number(thermalIndicative.details.alpha).toFixed(2)}, G=${Number(thermalIndicative.details.meanG).toFixed(0)} W/m², Geff=${Number(thermalIndicative.details.gEffective).toFixed(0)} W/m², Aproj=${Number(thermalIndicative.details.areaProjected).toFixed(2)} m², Atot=${Number(thermalIndicative.details.areaTotal).toFixed(2)} m², facteurGeom=${Number(thermalIndicative.details.geometricFactor).toFixed(2)}, h=${Number(thermalIndicative.details.hConv).toFixed(1)} W/m²K, hrad=${Number(thermalIndicative.details.hRad).toFixed(1)} W/m²K, Qsolaire=${Number(thermalIndicative.details.qSolar).toFixed(1)} W, attenuation=${Number(thermalIndicative.details.convectionAttenuation).toFixed(2)}`
     : '--';
   const envLabel = { indoor: 'Indoor', outdoor: 'Outdoor' }[resolvedSpecs.environment] || resolvedSpecs.environment || '--';
   const exposureLabel = resolvedSpecs.environment === 'outdoor' ? (resolvedSpecs.sunExposure || '--') : '--';

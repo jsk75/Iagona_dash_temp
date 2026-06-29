@@ -1863,6 +1863,12 @@ async function rafraichirContexteClimatiqueLocalisation(force = false) {
 }
 
 function calculerSurplusThermiqueIndicatif(specs = {}) {
+  const parseMmToM = (value) => {
+    const normalized = String(value ?? '').replace(',', '.').trim();
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed / 1000 : null;
+  };
+
   const baseWatt = Number(specs.watt);
   if (!Number.isFinite(baseWatt) || baseWatt <= 0) {
     return {
@@ -1922,9 +1928,21 @@ function calculerSurplusThermiqueIndicatif(specs = {}) {
   const meanG = Number.isFinite(solar) ? (solar * 11.574) : null; // MJ/m2/day -> W/m2 average
   const gEffective = Number.isFinite(meanG) ? (meanG * orientationFactor) : null;
 
-  const widthM = Number(specs.width) > 0 ? Number(specs.width) / 1000 : null;
-  const heightM = Number(specs.height) > 0 ? Number(specs.height) / 1000 : null;
-  const areaProjected = (widthM && heightM) ? Math.max(0.05, widthM * heightM) : 1.2;
+  const widthM = parseMmToM(specs.width);
+  const heightM = parseMmToM(specs.height);
+  const depthM = parseMmToM(specs.depth);
+
+  const hasFullDims = !!(widthM && heightM && depthM);
+  const faceFront = hasFullDims ? (widthM * heightM) : null;
+  const faceSide = hasFullDims ? (depthM * heightM) : null;
+  let areaProjectedBase = hasFullDims ? faceFront : 1.2;
+  if (hasFullDims && (sunExposure === 'est' || sunExposure === 'ouest')) {
+    areaProjectedBase = faceSide;
+  }
+  const areaProjected = Math.max(0.05, areaProjectedBase);
+  const areaTotal = hasFullDims
+    ? Math.max(0.2, 2 * ((widthM * heightM) + (heightM * depthM) + (widthM * depthM)))
+    : 3.6;
 
   const windMs = Number.isFinite(wind) ? Math.max(0, wind / 3.6) : 0;
   const hConv = 5.7 + (3.8 * windMs);
@@ -1939,7 +1957,9 @@ function calculerSurplusThermiqueIndicatif(specs = {}) {
   const qSolar = Number.isFinite(gEffective) ? (alpha * gEffective * areaProjected) : 0;
   const transmissionToInternal = 0.35; // part du flux solaire absorbé convertie en charge interne (estimatif)
   const convectionAttenuation = clamp(11.7 / Math.max(8, hTotal), 0.45, 1.15);
-  const rawSurplus = qSolar * transmissionToInternal * convectionAttenuation;
+  const projectedToTotalRatio = areaProjected / areaTotal;
+  const geometricFactor = clamp(projectedToTotalRatio / 0.22, 0.70, 1.35);
+  const rawSurplus = qSolar * transmissionToInternal * convectionAttenuation * geometricFactor;
   const surplusWatt = Number(Math.max(0, rawSurplus).toFixed(1));
 
   const adjustedWatt = Number((baseWatt + surplusWatt).toFixed(1));
@@ -1964,6 +1984,11 @@ function calculerSurplusThermiqueIndicatif(specs = {}) {
       meanG,
       gEffective,
       areaProjected,
+      areaTotal,
+      geometricFactor,
+      widthM,
+      heightM,
+      depthM,
       hConv,
       hRad,
       hTotal,
@@ -2017,11 +2042,16 @@ function mettreAJourSurplusThermiqueIndicatif(specs = {}) {
     const meanGTxt = Number.isFinite(d.meanG) ? d.meanG.toFixed(0) : '--';
     const geffTxt = Number.isFinite(d.gEffective) ? d.gEffective.toFixed(0) : '--';
     const aprojTxt = Number.isFinite(d.areaProjected) ? d.areaProjected.toFixed(2) : '--';
+    const atotTxt = Number.isFinite(d.areaTotal) ? d.areaTotal.toFixed(2) : '--';
+    const geomTxt = Number.isFinite(d.geometricFactor) ? d.geometricFactor.toFixed(2) : '--';
+    const widthTxt = Number.isFinite(d.widthM) ? d.widthM.toFixed(2) : '--';
+    const heightTxt = Number.isFinite(d.heightM) ? d.heightM.toFixed(2) : '--';
+    const depthTxt = Number.isFinite(d.depthM) ? d.depthM.toFixed(2) : '--';
     const hConvTxt = Number.isFinite(d.hConv) ? d.hConv.toFixed(1) : '--';
     const hRadTxt = Number.isFinite(d.hRad) ? d.hRad.toFixed(1) : '--';
     const qSolarTxt = Number.isFinite(d.qSolar) ? d.qSolar.toFixed(1) : '--';
     const attTxt = Number.isFinite(d.convectionAttenuation) ? d.convectionAttenuation.toFixed(2) : '--';
-    breakdownEl.textContent = `Détail calcul: alpha=${alphaTxt}, G=${meanGTxt} W/m², Geff=${geffTxt} W/m², Aproj=${aprojTxt} m², h=${hConvTxt} W/m²K, hrad=${hRadTxt} W/m²K, Qsolaire=${qSolarTxt} W, atténuation=${attTxt}.`;
+    breakdownEl.textContent = `Détail calcul: dims=${heightTxt}x${widthTxt}x${depthTxt} m, alpha=${alphaTxt}, G=${meanGTxt} W/m², Geff=${geffTxt} W/m², Aproj=${aprojTxt} m², Atot=${atotTxt} m², facteurGeom=${geomTxt}, h=${hConvTxt} W/m²K, hrad=${hRadTxt} W/m²K, Qsolaire=${qSolarTxt} W, atténuation=${attTxt}.`;
   } else {
     breakdownEl.textContent = 'Détail calcul: non applicable en indoor.';
   }
