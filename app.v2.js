@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const profileDeleteBtn = document.getElementById('profile-delete-btn');
   const clearBtn = document.getElementById('clear-log-btn');
   const exportBtn = document.getElementById('export-btn');
+  const testReportBtn = document.getElementById('test-report-btn');
   const totemUploadInput = document.getElementById('totem-image-upload');
   const totemDropzone = document.getElementById('totem-dropzone');
   const totemResetBtn = document.getElementById('totem-reset-image-btn');
@@ -36,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (clearBtn) clearBtn.addEventListener('click', viderLog);
   if (exportBtn) exportBtn.addEventListener('click', exporterExcel);
+  if (testReportBtn) testReportBtn.addEventListener('click', () => { genererRapportTest(); });
 
   if (totemUploadInput) totemUploadInput.addEventListener('change', (e) => {
     const file = e.target.files && e.target.files[0];
@@ -69,6 +71,11 @@ document.addEventListener('DOMContentLoaded', () => {
   for (let i = 0; i < 5; i++) {
     const inp = document.getElementById(`sonde-name-${i}`);
     if (inp) inp.addEventListener('input', (e) => changerNomSonde(i, e.target.value));
+
+    const minInput = document.getElementById(`sonde-target-min-${i}`);
+    const maxInput = document.getElementById(`sonde-target-max-${i}`);
+    if (minInput) minInput.addEventListener('input', planifierSauvegardeRuntimeState);
+    if (maxInput) maxInput.addEventListener('input', planifierSauvegardeRuntimeState);
   }
 
   // Système de ventilation
@@ -157,6 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
   geolocalisationAutomatique();
   setInterval(recupererMeteo, 900000);
   demarrerMQTT();
+  genererRapportTest();
 });
 
 // ---- rest of application logic (extracted) ----
@@ -245,12 +253,193 @@ function exporterExcel() {
   exporterExcelDepuisServeur();
 }
 
+function getSondeTargetsCourants() {
+  const targets = [];
+  for (let i = 0; i < NB_SONDES; i++) {
+    const minRaw = document.getElementById(`sonde-target-min-${i}`)?.value;
+    const maxRaw = document.getElementById(`sonde-target-max-${i}`)?.value;
+    const min = minRaw === '' || minRaw === undefined ? null : Number(minRaw);
+    const max = maxRaw === '' || maxRaw === undefined ? null : Number(maxRaw);
+    targets.push({
+      min: Number.isFinite(min) ? min : null,
+      max: Number.isFinite(max) ? max : null
+    });
+  }
+  return targets;
+}
+
+function appliquerSondeTargets(targets) {
+  if (!Array.isArray(targets)) return;
+  for (let i = 0; i < NB_SONDES; i++) {
+    const row = targets[i] || {};
+    const minInput = document.getElementById(`sonde-target-min-${i}`);
+    const maxInput = document.getElementById(`sonde-target-max-${i}`);
+    if (minInput) minInput.value = row.min === null || row.min === undefined ? '' : row.min;
+    if (maxInput) maxInput.value = row.max === null || row.max === undefined ? '' : row.max;
+  }
+}
+
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '--';
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  return `${h}h ${m}m`;
+}
+
+function parseEntryTimestamp(entry) {
+  if (entry.ts) {
+    const dt = new Date(entry.ts);
+    if (!Number.isNaN(dt.getTime())) return dt;
+  }
+  if (entry.date && entry.heure) {
+    const [d, m, y] = String(entry.date).split('/').map(Number);
+    if (d && m && y) {
+      const dt = new Date(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}T${entry.heure}`);
+      if (!Number.isNaN(dt.getTime())) return dt;
+    }
+  }
+  return null;
+}
+
+async function chargerLogsDepuisServeur(limit = 5000) {
+  const rows = await sendToServer(`/api/logs?limit=${limit}`);
+  if (!Array.isArray(rows)) return [];
+  return rows.map(r => ({
+    sondeIdx: Number(r.sondeIdx ?? r.sondeidx),
+    temp: Number(r.temp),
+    date: r.date || '',
+    heure: r.heure || '',
+    ts: r.ts || r.createdAt || r.createdat || ''
+  })).filter(r => Number.isFinite(r.sondeIdx) && Number.isFinite(r.temp));
+}
+
+function calculerTemperatureExterieureSurPeriode(start, end) {
+  const inRange = donneesExterieures.filter(p => p && p.t instanceof Date && p.t >= start && p.t <= end);
+  if (!inRange.length) return { start: null, end: null };
+  return { start: inRange[0].v, end: inRange[inRange.length - 1].v };
+}
+
+async function genererRapportTest() {
+  const tbody = document.getElementById('test-report-tbody');
+  const statusPill = document.getElementById('test-status-pill');
+  const startEl = document.getElementById('report-start');
+  const endEl = document.getElementById('report-end');
+  const durationEl = document.getElementById('report-duration');
+  const extRangeEl = document.getElementById('report-ext-range');
+  const intRangeEl = document.getElementById('report-int-range');
+  const resultEl = document.getElementById('report-result');
+  if (!tbody || !statusPill) return null;
+
+  const now = new Date();
+  const dayAgo = new Date(now.getTime() - (24 * 3600 * 1000));
+  const sourceLogs = await chargerLogsDepuisServeur(5000);
+  const fallback = sourceLogs.length ? sourceLogs : logComplet;
+  const entries24h = fallback.filter(entry => {
+    const ts = parseEntryTimestamp(entry);
+    return ts && ts >= dayAgo && ts <= now;
+  });
+
+  if (!entries24h.length) {
+    tbody.innerHTML = '<tr><td colspan="8">Aucune donnée sur les dernières 24h.</td></tr>';
+    statusPill.textContent = 'En attente';
+    statusPill.classList.remove('pass');
+    statusPill.classList.add('fail');
+    if (startEl) startEl.textContent = '--';
+    if (endEl) endEl.textContent = '--';
+    if (durationEl) durationEl.textContent = '--';
+    if (extRangeEl) extRangeEl.textContent = '--';
+    if (intRangeEl) intRangeEl.textContent = '--';
+    if (resultEl) resultEl.textContent = 'Échec';
+    return null;
+  }
+
+  const targets = getSondeTargetsCourants();
+  const rows = [];
+  let allPass = true;
+
+  for (let i = 0; i < NB_SONDES; i++) {
+    const sensorEntries = entries24h
+      .filter(entry => Number(entry.sondeIdx) === i)
+      .sort((a, b) => parseEntryTimestamp(a) - parseEntryTimestamp(b));
+    const target = targets[i] || { min: null, max: null };
+
+    if (!sensorEntries.length) {
+      allPass = false;
+      rows.push({ label: getSondeLabel(i), tmin: target.min, tmax: target.max, min: null, max: null, start: null, end: null, pass: false });
+      continue;
+    }
+
+    const values = sensorEntries.map(entry => Number(entry.temp)).filter(v => Number.isFinite(v));
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const start = Number(sensorEntries[0].temp);
+    const end = Number(sensorEntries[sensorEntries.length - 1].temp);
+    const passMin = target.min === null || min >= target.min;
+    const passMax = target.max === null || max <= target.max;
+    const pass = passMin && passMax;
+    if (!pass) allPass = false;
+
+    rows.push({ label: getSondeLabel(i), tmin: target.min, tmax: target.max, min, max, start, end, pass });
+  }
+
+  const timestamps = entries24h.map(parseEntryTimestamp).filter(Boolean).sort((a, b) => a - b);
+  const testStart = timestamps[0];
+  const testEnd = timestamps[timestamps.length - 1];
+  const durationMs = testEnd - testStart;
+
+  const startValues = rows.filter(r => r.start !== null).map(r => r.start);
+  const endValues = rows.filter(r => r.end !== null).map(r => r.end);
+  const interiorStart = startValues.length ? startValues.reduce((a, b) => a + b, 0) / startValues.length : null;
+  const interiorEnd = endValues.length ? endValues.reduce((a, b) => a + b, 0) / endValues.length : null;
+  const ext = calculerTemperatureExterieureSurPeriode(testStart, testEnd);
+
+  tbody.innerHTML = rows.map(row => `
+    <tr>
+      <td>${row.label}</td>
+      <td>${row.tmin === null ? '--' : row.tmin.toFixed(1)} °C</td>
+      <td>${row.tmax === null ? '--' : row.tmax.toFixed(1)} °C</td>
+      <td>${row.min === null ? '--' : row.min.toFixed(2)} °C</td>
+      <td>${row.max === null ? '--' : row.max.toFixed(2)} °C</td>
+      <td>${row.start === null ? '--' : row.start.toFixed(2)} °C</td>
+      <td>${row.end === null ? '--' : row.end.toFixed(2)} °C</td>
+      <td class="${row.pass ? 'sensor-result-pass' : 'sensor-result-fail'}">${row.pass ? 'Réussite' : 'Échec'}</td>
+    </tr>
+  `).join('');
+
+  statusPill.textContent = allPass ? 'Réussite' : 'Échec';
+  statusPill.classList.toggle('pass', allPass);
+  statusPill.classList.toggle('fail', !allPass);
+  if (startEl) startEl.textContent = testStart.toLocaleString('fr-FR');
+  if (endEl) endEl.textContent = testEnd.toLocaleString('fr-FR');
+  if (durationEl) durationEl.textContent = formatDuration(durationMs);
+  if (extRangeEl) extRangeEl.textContent = (ext.start === null || ext.end === null) ? '--' : `${ext.start.toFixed(1)} °C → ${ext.end.toFixed(1)} °C`;
+  if (intRangeEl) intRangeEl.textContent = (interiorStart === null || interiorEnd === null) ? '--' : `${interiorStart.toFixed(1)} °C → ${interiorEnd.toFixed(1)} °C`;
+  if (resultEl) resultEl.textContent = allPass ? 'Réussite' : 'Échec';
+
+  return {
+    generatedAt: new Date().toISOString(),
+    status: allPass ? 'success' : 'failure',
+    durationMs,
+    testStart: testStart.toISOString(),
+    testEnd: testEnd.toISOString(),
+    exteriorStart: ext.start,
+    exteriorEnd: ext.end,
+    interiorStart,
+    interiorEnd,
+    sensors: rows
+  };
+}
+
 async function exporterExcelDepuisServeur() {
+  const report = await genererRapportTest();
   const payload = {
     chartImageBase64: captureGraphImage(),
     sensorLabels: Array.from({ length: NB_SONDES }, (_, index) => getSondeLabel(index)),
     colors: [...COULEURS],
-    exportedAt: new Date().toISOString()
+    exportedAt: new Date().toISOString(),
+    sensorTargets: getSondeTargetsCourants(),
+    report
   };
 
   try {
@@ -355,6 +544,7 @@ function getRuntimeStatePayload() {
     activeProfile: profilActuel,
     sensorNames: [...SONDE_CUSTOM_NAMES],
     sensorPositions: getCurrentPositions(),
+    sensorTargets: getSondeTargetsCourants(),
     ventilation: getVentilationConfigCourante()
   };
 }
@@ -391,6 +581,10 @@ async function chargerRuntimeStateDepuisServeur() {
 
   if (Array.isArray(state.sensorPositions) && state.sensorPositions.length) {
     applyPositions(state.sensorPositions);
+  }
+
+  if (Array.isArray(state.sensorTargets)) {
+    appliquerSondeTargets(state.sensorTargets);
   }
 
   if (state.ventilation) {
@@ -638,7 +832,12 @@ async function sauvegarderProfilSurServeur(name) {
   const response = await sendToServer('/api/profiles', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, names: [...SONDE_CUSTOM_NAMES], positions: getCurrentPositions() })
+    body: JSON.stringify({
+      name,
+      names: [...SONDE_CUSTOM_NAMES],
+      positions: getCurrentPositions(),
+      targets: getSondeTargetsCourants()
+    })
   });
   return !!(response && response.name);
 }
@@ -755,6 +954,7 @@ function chargerProfil(nom, enregistrerLast = true) {
   if (!profil) return;
   if (Array.isArray(profil.names)) profil.names.forEach((value, idx) => { if (idx < NB_SONDES) { SONDE_CUSTOM_NAMES[idx] = value || ''; const input = document.getElementById(`sonde-name-${idx}`); if (input) input.value = SONDE_CUSTOM_NAMES[idx]; } });
   if (Array.isArray(profil.positions)) applyPositions(profil.positions);
+  if (Array.isArray(profil.targets)) appliquerSondeTargets(profil.targets);
   mettreAJourAffichageNomsSondes();
   if (enregistrerLast) localStorage.setItem(PROFIL_LAST_KEY, nom);
   planifierSauvegardeRuntimeState();
@@ -763,7 +963,14 @@ function chargerProfil(nom, enregistrerLast = true) {
 async function sauvegarderProfil() {
   const libelle = document.getElementById('profile-name').value.trim();
   if (!libelle) { alert('Veuillez saisir un nom de profil.'); return; }
-  profilsEnregistres[libelle] = { name: libelle, names: [...SONDE_CUSTOM_NAMES], positions: getCurrentPositions(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  profilsEnregistres[libelle] = {
+    name: libelle,
+    names: [...SONDE_CUSTOM_NAMES],
+    positions: getCurrentPositions(),
+    targets: getSondeTargetsCourants(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
   enregistrerProfilesLocalement();
   renderProfiles();
   const select = document.getElementById('profile-select'); if (select) select.value = libelle;
@@ -806,6 +1013,7 @@ function mettreAJourAffichageNomsSondes() {
 
 let fenetreSec = 30;
 const donnees = Array.from({length: NB_SONDES}, () => []);
+const donneesExterieures = [];
 
 const cardsEl = document.getElementById('cards');
 const cardEls = [];
@@ -1016,7 +1224,10 @@ async function recupererMeteo() {
     const resMeteo = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latActuelle}&longitude=${lonActuelle}&current_weather=true`);
     if (!resMeteo.ok) throw new Error("Erreur API météo");
     const DonneesMeteo = await resMeteo.json();
-    document.getElementById('meteo-temp').innerHTML = `${DonneesMeteo.current_weather.temperature.toFixed(1)}<span class="card-unit">°C</span>`;
+    const tempExt = Number(DonneesMeteo.current_weather.temperature);
+    document.getElementById('meteo-temp').innerHTML = `${tempExt.toFixed(1)}<span class="card-unit">°C</span>`;
+    donneesExterieures.push({ t: new Date(), v: tempExt });
+    while (donneesExterieures.length > 5000) donneesExterieures.shift();
     document.getElementById('meteo-status').textContent = `Mis à jour à ${new Date().toLocaleTimeString('fr-FR')}`;
     divMeteo.classList.add('active');
   } catch (error) {

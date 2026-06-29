@@ -37,6 +37,7 @@ async function initPg() {
     name TEXT PRIMARY KEY,
     names TEXT,
     positions TEXT,
+    targets TEXT,
     createdAt TEXT,
     updatedAt TEXT
   )`);
@@ -87,9 +88,15 @@ sqliteDb.serialize(() => {
     name TEXT PRIMARY KEY,
     names TEXT,
     positions TEXT,
+    targets TEXT,
     createdAt TEXT,
     updatedAt TEXT
   )`);
+  sqliteDb.run(`ALTER TABLE profiles ADD COLUMN targets TEXT`, (err) => {
+    if (err && !String(err.message || '').includes('duplicate column name')) {
+      console.error('SQLite ALTER TABLE profiles targets error', err);
+    }
+  });
   sqliteDb.run(`CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sondeIdx INTEGER,
@@ -328,6 +335,8 @@ async function buildExcelExportBuffer(payload = {}) {
     chartImageBase64,
     sensorLabels = SONDE_NAMES.map((name, index) => `Sonde ${index + 1}`),
     colors = [],
+    sensorTargets = [],
+    report = null,
     specs = null,
     runtimeConfig = null,
     exportedAt = new Date().toISOString()
@@ -486,6 +495,51 @@ async function buildExcelExportBuffer(payload = {}) {
     ]);
   });
 
+  const reportSheet = workbook.addWorksheet('Rapport Test');
+  reportSheet.columns = [{ width: 30 }, { width: 30 }, { width: 22 }, { width: 22 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 16 }];
+  reportSheet.addRow(['Rapport de test (24h)']);
+  reportSheet.addRow(['Généré le', new Date(exportedAt).toLocaleString('fr-FR')]);
+  reportSheet.addRow([]);
+
+  const resolvedReport = report || {};
+  const statusText = resolvedReport.status === 'success' ? 'Réussite' : resolvedReport.status === 'failure' ? 'Échec' : '--';
+  reportSheet.addRow(['Résultat Journée', statusText]);
+  reportSheet.addRow(['Début Test', resolvedReport.testStart ? new Date(resolvedReport.testStart).toLocaleString('fr-FR') : '--']);
+  reportSheet.addRow(['Fin Test', resolvedReport.testEnd ? new Date(resolvedReport.testEnd).toLocaleString('fr-FR') : '--']);
+  reportSheet.addRow(['Durée Test', Number.isFinite(resolvedReport.durationMs) ? `${Math.floor(resolvedReport.durationMs / 3600000)}h ${Math.floor((resolvedReport.durationMs % 3600000) / 60000)}m` : '--']);
+  reportSheet.addRow(['Température extérieure début', Number.isFinite(resolvedReport.exteriorStart) ? `${resolvedReport.exteriorStart.toFixed(1)} °C` : '--']);
+  reportSheet.addRow(['Température extérieure fin', Number.isFinite(resolvedReport.exteriorEnd) ? `${resolvedReport.exteriorEnd.toFixed(1)} °C` : '--']);
+  reportSheet.addRow(['Température intérieure moyenne début', Number.isFinite(resolvedReport.interiorStart) ? `${resolvedReport.interiorStart.toFixed(1)} °C` : '--']);
+  reportSheet.addRow(['Température intérieure moyenne fin', Number.isFinite(resolvedReport.interiorEnd) ? `${resolvedReport.interiorEnd.toFixed(1)} °C` : '--']);
+  reportSheet.addRow([]);
+  reportSheet.addRow(['Sonde', 'Cible Min', 'Cible Max', 'Mesure Min', 'Mesure Max', 'Début', 'Fin', 'Statut']);
+
+  const reportSensors = Array.isArray(resolvedReport.sensors) ? resolvedReport.sensors : [];
+  if (reportSensors.length) {
+    reportSensors.forEach(sensor => {
+      reportSheet.addRow([
+        sensor.label || '--',
+        Number.isFinite(sensor.tmin) ? `${Number(sensor.tmin).toFixed(1)} °C` : '--',
+        Number.isFinite(sensor.tmax) ? `${Number(sensor.tmax).toFixed(1)} °C` : '--',
+        Number.isFinite(sensor.min) ? `${Number(sensor.min).toFixed(2)} °C` : '--',
+        Number.isFinite(sensor.max) ? `${Number(sensor.max).toFixed(2)} °C` : '--',
+        Number.isFinite(sensor.start) ? `${Number(sensor.start).toFixed(2)} °C` : '--',
+        Number.isFinite(sensor.end) ? `${Number(sensor.end).toFixed(2)} °C` : '--',
+        sensor.pass ? 'Réussite' : 'Échec'
+      ]);
+    });
+  } else {
+    for (let i = 0; i < NB_SONDES; i++) {
+      const t = sensorTargets[i] || {};
+      reportSheet.addRow([
+        sensorLabels[i] || `Sonde ${i + 1}`,
+        Number.isFinite(t.min) ? `${Number(t.min).toFixed(1)} °C` : '--',
+        Number.isFinite(t.max) ? `${Number(t.max).toFixed(1)} °C` : '--',
+        '--', '--', '--', '--', '--'
+      ]);
+    }
+  }
+
   return workbook.xlsx.writeBuffer();
 }
 
@@ -561,13 +615,13 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok', env: usePg ? 'post
 app.get('/api/profiles', async (req, res) => {
   try {
     if (usePg && pgClient) {
-      const { rows } = await pgClient.query('SELECT name, names, positions, createdAt, updatedAt FROM profiles ORDER BY updatedAt DESC');
-      const profiles = rows.map(r => ({ name: r.name, names: JSON.parse(r.names || '[]'), positions: JSON.parse(r.positions || '[]'), createdAt: r.createdat, updatedAt: r.updatedat }));
+      const { rows } = await pgClient.query('SELECT name, names, positions, targets, createdAt, updatedAt FROM profiles ORDER BY updatedAt DESC');
+      const profiles = rows.map(r => ({ name: r.name, names: JSON.parse(r.names || '[]'), positions: JSON.parse(r.positions || '[]'), targets: JSON.parse(r.targets || '[]'), createdAt: r.createdat, updatedAt: r.updatedat }));
       return res.json(profiles);
     }
-    sqliteDb.all('SELECT name, names, positions, createdAt, updatedAt FROM profiles ORDER BY updatedAt DESC', [], (err, rows) => {
+    sqliteDb.all('SELECT name, names, positions, targets, createdAt, updatedAt FROM profiles ORDER BY updatedAt DESC', [], (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
-      const profiles = rows.map(r => ({ name: r.name, names: JSON.parse(r.names || '[]'), positions: JSON.parse(r.positions || '[]'), createdAt: r.createdAt, updatedAt: r.updatedAt }));
+      const profiles = rows.map(r => ({ name: r.name, names: JSON.parse(r.names || '[]'), positions: JSON.parse(r.positions || '[]'), targets: JSON.parse(r.targets || '[]'), createdAt: r.createdAt, updatedAt: r.updatedAt }));
       res.json(profiles);
     });
   } catch (e) {
@@ -579,15 +633,15 @@ app.get('/api/profiles/:name', async (req, res) => {
   const { name } = req.params;
   try {
     if (usePg && pgClient) {
-      const { rows } = await pgClient.query('SELECT name, names, positions, createdAt, updatedAt FROM profiles WHERE name = $1', [name]);
+      const { rows } = await pgClient.query('SELECT name, names, positions, targets, createdAt, updatedAt FROM profiles WHERE name = $1', [name]);
       if (!rows || rows.length === 0) return res.status(404).json({ error: 'Profil non trouvé' });
       const row = rows[0];
-      return res.json({ name: row.name, names: JSON.parse(row.names || '[]'), positions: JSON.parse(row.positions || '[]'), createdAt: row.createdat, updatedAt: row.updatedat });
+      return res.json({ name: row.name, names: JSON.parse(row.names || '[]'), positions: JSON.parse(row.positions || '[]'), targets: JSON.parse(row.targets || '[]'), createdAt: row.createdat, updatedAt: row.updatedat });
     }
-    sqliteDb.get('SELECT name, names, positions, createdAt, updatedAt FROM profiles WHERE name = ?', [name], (err, row) => {
+    sqliteDb.get('SELECT name, names, positions, targets, createdAt, updatedAt FROM profiles WHERE name = ?', [name], (err, row) => {
       if (err) return res.status(500).json({ error: err.message });
       if (!row) return res.status(404).json({ error: 'Profil non trouvé' });
-      res.json({ name: row.name, names: JSON.parse(row.names || '[]'), positions: JSON.parse(row.positions || '[]'), createdAt: row.createdAt, updatedAt: row.updatedAt });
+      res.json({ name: row.name, names: JSON.parse(row.names || '[]'), positions: JSON.parse(row.positions || '[]'), targets: JSON.parse(row.targets || '[]'), createdAt: row.createdAt, updatedAt: row.updatedAt });
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -596,19 +650,20 @@ app.get('/api/profiles/:name', async (req, res) => {
 
 // Protected endpoints for creating/updating/deleting profiles
 app.post('/api/profiles', requireApiToken, async (req, res) => {
-  const { name, names, positions } = req.body;
+  const { name, names, positions, targets } = req.body;
   if (!name || !Array.isArray(names) || !Array.isArray(positions)) return res.status(400).json({ error: 'Payload invalide' });
+  const resolvedTargets = Array.isArray(targets) ? targets : [];
   const now = new Date().toISOString();
   try {
     if (usePg && pgClient) {
-      await pgClient.query(`INSERT INTO profiles (name, names, positions, createdAt, updatedAt) VALUES ($1,$2,$3,$4,$5)
-        ON CONFLICT (name) DO UPDATE SET names = EXCLUDED.names, positions = EXCLUDED.positions, updatedAt = EXCLUDED.updatedAt`, [name, JSON.stringify(names), JSON.stringify(positions), now, now]);
-      return res.json({ name, names, positions, createdAt: now, updatedAt: now });
+      await pgClient.query(`INSERT INTO profiles (name, names, positions, targets, createdAt, updatedAt) VALUES ($1,$2,$3,$4,$5,$6)
+        ON CONFLICT (name) DO UPDATE SET names = EXCLUDED.names, positions = EXCLUDED.positions, targets = EXCLUDED.targets, updatedAt = EXCLUDED.updatedAt`, [name, JSON.stringify(names), JSON.stringify(positions), JSON.stringify(resolvedTargets), now, now]);
+      return res.json({ name, names, positions, targets: resolvedTargets, createdAt: now, updatedAt: now });
     }
-    sqliteDb.run(`INSERT INTO profiles (name, names, positions, createdAt, updatedAt) VALUES (?,?,?,?,?)
-      ON CONFLICT(name) DO UPDATE SET names = excluded.names, positions = excluded.positions, updatedAt = excluded.updatedAt`, [name, JSON.stringify(names), JSON.stringify(positions), now, now], function (err) {
+    sqliteDb.run(`INSERT INTO profiles (name, names, positions, targets, createdAt, updatedAt) VALUES (?,?,?,?,?,?)
+      ON CONFLICT(name) DO UPDATE SET names = excluded.names, positions = excluded.positions, targets = excluded.targets, updatedAt = excluded.updatedAt`, [name, JSON.stringify(names), JSON.stringify(positions), JSON.stringify(resolvedTargets), now, now], function (err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ name, names, positions, createdAt: now, updatedAt: now });
+      res.json({ name, names, positions, targets: resolvedTargets, createdAt: now, updatedAt: now });
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
