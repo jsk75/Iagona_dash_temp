@@ -502,12 +502,41 @@
       border-radius: 8px;
       background: #0f1117;
     }
+    .specs-indicative-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
     .specs-indicative-title {
       font-size: 11px;
       color: #aaa;
-      margin-bottom: 6px;
+      margin: 0;
       text-transform: uppercase;
       letter-spacing: 0.02em;
+    }
+    .specs-indicative-toggle {
+      border: 1px solid #2a2d3a;
+      background: #171a23;
+      color: #d4d8e2;
+      border-radius: 6px;
+      font-size: 11px;
+      padding: 4px 8px;
+      cursor: pointer;
+    }
+    .specs-indicative-toggle:hover {
+      border-color: #444d62;
+    }
+    .specs-indicative-content {
+      max-height: 220px;
+      opacity: 1;
+      overflow: hidden;
+      transition: max-height 0.25s ease, opacity 0.2s ease;
+    }
+    .specs-indicative-content.collapsed {
+      max-height: 0;
+      opacity: 0;
     }
     .specs-indicative-line {
       font-size: 12px;
@@ -1009,11 +1038,16 @@
       </div>
       <div class="specs-row full">
         <div class="specs-indicative-box" id="totem-thermal-indicative-box">
-          <div class="specs-indicative-title">Ajustement thermique indicatif</div>
-          <div class="specs-indicative-line" id="totem-solar-indicative-value">Rayonnement solaire estimé: --</div>
-          <div class="specs-indicative-line" id="totem-wind-indicative-value">Indice vent (EN 1991-1-4): --</div>
-          <div class="specs-indicative-line" id="totem-thermal-indicative-value">Watt ajusté indicatif: --</div>
-          <p class="specs-indicative-note" id="totem-thermal-indicative-note">Indicatif uniquement. Le débit nominal ventilateur reste manuel.</p>
+          <div class="specs-indicative-header">
+            <div class="specs-indicative-title">Ajustement thermique indicatif</div>
+            <button id="totem-calculator-toggle" class="specs-indicative-toggle" type="button" aria-expanded="true">Réduire</button>
+          </div>
+          <div class="specs-indicative-content" id="totem-calculator-content">
+            <div class="specs-indicative-line" id="totem-solar-indicative-value">Rayonnement solaire estimé: --</div>
+            <div class="specs-indicative-line" id="totem-wind-indicative-value">Indice vent (EN 1991-1-4): --</div>
+            <div class="specs-indicative-line" id="totem-thermal-indicative-value">Watt ajusté indicatif: --</div>
+            <p class="specs-indicative-note" id="totem-thermal-indicative-note">Indicatif uniquement. Le débit nominal ventilateur reste manuel.</p>
+          </div>
         </div>
       </div>
     </div>

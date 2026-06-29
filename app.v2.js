@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const totemResetBtn = document.getElementById('totem-reset-image-btn');
   const modeAuto = document.getElementById('btn-mode-auto');
   const modeManu = document.getElementById('btn-mode-manu');
+  const calculatorToggle = document.getElementById('totem-calculator-toggle');
 
   if (sidebarOverlay) sidebarOverlay.addEventListener('click', () => toggleSidebar(false));
   if (closeSidebarBtn) closeSidebarBtn.addEventListener('click', () => toggleSidebar(false));
@@ -78,6 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (modeAuto) modeAuto.addEventListener('click', () => changerModeVentilo('AUTO'));
   if (modeManu) modeManu.addEventListener('click', () => changerModeVentilo('MANU'));
+  if (calculatorToggle) calculatorToggle.addEventListener('click', toggleCalculateurThermique);
 
   // rename inputs
   for (let i = 0; i < 5; i++) {
@@ -179,6 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
   restaurerEtatVentiloTab();
   restaurerEtatAccordions();
   restaurerEtatVentiloGroups();
+  restaurerEtatCalculateurThermique();
   geolocalisationAutomatique();
   setInterval(recupererMeteo, 900000);
   demarrerMQTT();
@@ -609,6 +612,7 @@ const SPECS_TAB_COLLAPSED_KEY = 'specs_tab_collapsed';
 const DEFINITION_TAB_COLLAPSED_KEY = 'definition_tab_collapsed';
 const PROFILS_TAB_COLLAPSED_KEY = 'profils_tab_collapsed';
 const IMAGE_TAB_COLLAPSED_KEY = 'image_tab_collapsed';
+const THERMAL_CALCULATOR_COLLAPSED_KEY = 'thermal_calculator_collapsed';
 let profilsEnregistres = {};
 let profilActuel = 'default';
 let totemImageLibrary = [];
@@ -1745,6 +1749,32 @@ function restaurerEtatVentiloGroups() {
     });
   } catch (e) {
     console.warn('Erreur lors de la restauration de l\'état groupes ventilation', e);
+  }
+}
+
+function toggleCalculateurThermique() {
+  const content = document.getElementById('totem-calculator-content');
+  const btn = document.getElementById('totem-calculator-toggle');
+  if (!content || !btn) return;
+
+  content.classList.toggle('collapsed');
+  const isCollapsed = content.classList.contains('collapsed');
+  btn.textContent = isCollapsed ? 'Afficher' : 'Réduire';
+  btn.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+  localStorage.setItem(THERMAL_CALCULATOR_COLLAPSED_KEY, isCollapsed ? 'true' : 'false');
+}
+
+function restaurerEtatCalculateurThermique() {
+  try {
+    const isCollapsed = localStorage.getItem(THERMAL_CALCULATOR_COLLAPSED_KEY) === 'true';
+    const content = document.getElementById('totem-calculator-content');
+    const btn = document.getElementById('totem-calculator-toggle');
+    if (!content || !btn) return;
+    content.classList.toggle('collapsed', isCollapsed);
+    btn.textContent = isCollapsed ? 'Afficher' : 'Réduire';
+    btn.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+  } catch (e) {
+    console.warn('Erreur lors de la restauration du calculateur thermique', e);
   }
 }
 
