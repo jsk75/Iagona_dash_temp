@@ -493,6 +493,32 @@
       text-align: center;
       margin-top: 2px;
     }
+    .conditional-hidden {
+      display: none !important;
+    }
+    .specs-indicative-box {
+      padding: 10px;
+      border: 1px solid #2a2d3a;
+      border-radius: 8px;
+      background: #0f1117;
+    }
+    .specs-indicative-title {
+      font-size: 11px;
+      color: #aaa;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .specs-indicative-line {
+      font-size: 12px;
+      color: #ddd;
+      margin-bottom: 4px;
+    }
+    .specs-indicative-note {
+      font-size: 11px;
+      color: #8f95a3;
+      margin: 0;
+    }
 
     /* Système de ventilation */
     .debit-input-group {
@@ -794,6 +820,28 @@
       flex-wrap: wrap;
       margin-bottom: 12px;
     }
+    .report-range-controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .report-range-controls select,
+    .report-range-controls input {
+      background: #0f1117;
+      border: 1px solid #2a2d3a;
+      border-radius: 8px;
+      color: #fff;
+      padding: 7px 10px;
+      font-size: 12px;
+    }
+    .report-range-controls input {
+      min-width: 190px;
+    }
+    .report-range-controls .hidden {
+      display: none;
+    }
     .test-report-title {
       font-size: 13px;
       color: #aaa;
@@ -926,8 +974,8 @@
         </div>
       </div>
 
-      <!-- Couleur -->
-      <div class="specs-row full">
+      <!-- Paramètres outdoor uniquement -->
+      <div class="specs-row full" id="totem-outdoor-options">
         <div class="specs-field">
           <label for="totem-spec-color">Couleur</label>
           <select id="totem-spec-color">
@@ -941,6 +989,29 @@
             <option value="vert">Vert</option>
             <option value="autre">Autre</option>
           </select>
+        </div>
+      </div>
+      <div class="specs-row full" id="totem-sun-exposure-row">
+        <div class="specs-field">
+          <label for="totem-spec-sun-exposure">Exposition au soleil</label>
+          <select id="totem-spec-sun-exposure">
+            <option value="">-- Sélectionner --</option>
+            <option value="nord">Nord</option>
+            <option value="est">Est</option>
+            <option value="sud">Sud</option>
+            <option value="ouest">Ouest</option>
+            <option value="faible">Faible</option>
+            <option value="moyenne">Moyenne</option>
+            <option value="forte">Forte</option>
+            <option value="directe">Directe</option>
+          </select>
+        </div>
+      </div>
+      <div class="specs-row full">
+        <div class="specs-indicative-box" id="totem-thermal-indicative-box">
+          <div class="specs-indicative-title">Ajustement thermique indicatif</div>
+          <div class="specs-indicative-line" id="totem-thermal-indicative-value">Watt ajusté indicatif: --</div>
+          <p class="specs-indicative-note" id="totem-thermal-indicative-note">Indicatif uniquement. Le débit nominal ventilateur reste manuel.</p>
         </div>
       </div>
     </div>
@@ -1191,11 +1262,20 @@
 
   <div class="test-report-wrap" id="test-report-wrap">
     <div class="test-report-header">
-      <div class="test-report-title">Rapport de Test (24h)</div>
+      <div class="test-report-title" id="test-report-title">Rapport de Test (24h)</div>
       <div style="display:flex; gap:8px; align-items:center;">
         <span id="test-status-pill" class="test-status fail">En attente</span>
         <button id="test-report-btn" class="export-btn" type="button">Générer Rapport</button>
       </div>
+    </div>
+    <div class="report-range-controls">
+      <select id="report-range-select">
+        <option value="24h" selected>Dernières 24h</option>
+        <option value="current">Test courant</option>
+        <option value="custom">Intervalle personnalisé</option>
+      </select>
+      <input id="report-range-start" type="datetime-local" class="hidden" />
+      <input id="report-range-end" type="datetime-local" class="hidden" />
     </div>
     <div class="report-summary-grid">
       <div class="report-kpi">

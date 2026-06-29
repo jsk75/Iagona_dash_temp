@@ -13,6 +13,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const clearBtn = document.getElementById('clear-log-btn');
   const exportBtn = document.getElementById('export-btn');
   const testReportBtn = document.getElementById('test-report-btn');
+  const reportRangeSelect = document.getElementById('report-range-select');
+  const reportRangeStart = document.getElementById('report-range-start');
+  const reportRangeEnd = document.getElementById('report-range-end');
   const totemUploadInput = document.getElementById('totem-image-upload');
   const totemDropzone = document.getElementById('totem-dropzone');
   const totemResetBtn = document.getElementById('totem-reset-image-btn');
@@ -38,6 +41,15 @@ document.addEventListener('DOMContentLoaded', () => {
   if (clearBtn) clearBtn.addEventListener('click', viderLog);
   if (exportBtn) exportBtn.addEventListener('click', exporterExcel);
   if (testReportBtn) testReportBtn.addEventListener('click', () => { genererRapportTest(); });
+  if (reportRangeSelect) {
+    reportRangeSelect.addEventListener('change', () => {
+      basculerVisibilitePlagePersonnalisee();
+      planifierSauvegardeRuntimeState();
+      genererRapportTest();
+    });
+  }
+  if (reportRangeStart) reportRangeStart.addEventListener('change', () => { planifierSauvegardeRuntimeState(); genererRapportTest(); });
+  if (reportRangeEnd) reportRangeEnd.addEventListener('change', () => { planifierSauvegardeRuntimeState(); genererRapportTest(); });
 
   if (totemUploadInput) totemUploadInput.addEventListener('change', (e) => {
     const file = e.target.files && e.target.files[0];
@@ -123,7 +135,8 @@ document.addEventListener('DOMContentLoaded', () => {
     'totem-spec-depth',
     'totem-spec-watt',
     'totem-spec-environment',
-    'totem-spec-color'
+    'totem-spec-color',
+    'totem-spec-sun-exposure'
   ];
   specFields.forEach(fieldId => {
     const field = document.getElementById(fieldId);
@@ -132,6 +145,11 @@ document.addEventListener('DOMContentLoaded', () => {
       field.addEventListener('change', sauvegarderSpecsTotem);
     }
   });
+  const environmentSelect = document.getElementById('totem-spec-environment');
+  if (environmentSelect) {
+    environmentSelect.addEventListener('change', () => gererVisibiliteOptionsOutdoor(true));
+  }
+  gererVisibiliteOptionsOutdoor(false);
 
   // initialize dynamic parts that expect to run after DOM is ready
   initialiserImagesTotem();
@@ -164,6 +182,7 @@ document.addEventListener('DOMContentLoaded', () => {
   geolocalisationAutomatique();
   setInterval(recupererMeteo, 900000);
   demarrerMQTT();
+  basculerVisibilitePlagePersonnalisee();
   genererRapportTest();
 });
 
@@ -320,6 +339,68 @@ function calculerTemperatureExterieureSurPeriode(start, end) {
   return { start: inRange[0].v, end: inRange[inRange.length - 1].v };
 }
 
+function basculerVisibilitePlagePersonnalisee() {
+  const select = document.getElementById('report-range-select');
+  const startInput = document.getElementById('report-range-start');
+  const endInput = document.getElementById('report-range-end');
+  if (!select || !startInput || !endInput) return;
+  const show = select.value === 'custom';
+  startInput.classList.toggle('hidden', !show);
+  endInput.classList.toggle('hidden', !show);
+  if (show) {
+    initialiserPlagePersonnaliseeParDefaut();
+  }
+}
+
+function toDatetimeLocalValue(date) {
+  const d = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+  return d.toISOString().slice(0, 16);
+}
+
+function initialiserPlagePersonnaliseeParDefaut() {
+  const startInput = document.getElementById('report-range-start');
+  const endInput = document.getElementById('report-range-end');
+  if (!startInput || !endInput) return;
+
+  if (!startInput.value) {
+    const now = new Date();
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    startInput.value = toDatetimeLocalValue(start);
+  }
+  if (!endInput.value) {
+    endInput.value = toDatetimeLocalValue(new Date());
+  }
+}
+
+function getPlageRapport(entries) {
+  const select = document.getElementById('report-range-select');
+  const startInput = document.getElementById('report-range-start');
+  const endInput = document.getElementById('report-range-end');
+  const now = new Date();
+  const mode = select ? select.value : '24h';
+
+  if (mode === 'custom') {
+    const start = startInput && startInput.value ? new Date(startInput.value) : null;
+    const end = endInput && endInput.value ? new Date(endInput.value) : null;
+    if (start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && end > start) {
+      return { mode, start, end, label: 'Intervalle personnalisé' };
+    }
+    return null;
+  }
+
+  if (mode === 'current') {
+    const timestamps = entries.map(parseEntryTimestamp).filter(Boolean).sort((a, b) => a - b);
+    if (!timestamps.length) return null;
+    const start = timestamps[0];
+    const end = timestamps[timestamps.length - 1];
+    return { mode, start, end, label: 'Test courant' };
+  }
+
+  const start = new Date(now.getTime() - (24 * 3600 * 1000));
+  return { mode: '24h', start, end: now, label: 'Dernières 24h' };
+}
+
 async function genererRapportTest() {
   const tbody = document.getElementById('test-report-tbody');
   const statusPill = document.getElementById('test-status-pill');
@@ -329,19 +410,29 @@ async function genererRapportTest() {
   const extRangeEl = document.getElementById('report-ext-range');
   const intRangeEl = document.getElementById('report-int-range');
   const resultEl = document.getElementById('report-result');
+  const titleEl = document.getElementById('test-report-title');
   if (!tbody || !statusPill) return null;
 
-  const now = new Date();
-  const dayAgo = new Date(now.getTime() - (24 * 3600 * 1000));
   const sourceLogs = await chargerLogsDepuisServeur(5000);
   const fallback = sourceLogs.length ? sourceLogs : logComplet;
-  const entries24h = fallback.filter(entry => {
+  const range = getPlageRapport(fallback);
+  if (!range) {
+    tbody.innerHTML = '<tr><td colspan="8">Intervalle personnalisé invalide. Sélectionne début/fin.</td></tr>';
+    statusPill.textContent = 'En attente';
+    statusPill.classList.remove('pass');
+    statusPill.classList.add('fail');
+    if (titleEl) titleEl.textContent = 'Rapport de Test';
+    return null;
+  }
+  if (titleEl) titleEl.textContent = `Rapport de Test (${range.label})`;
+
+  const entriesInRange = fallback.filter(entry => {
     const ts = parseEntryTimestamp(entry);
-    return ts && ts >= dayAgo && ts <= now;
+    return ts && ts >= range.start && ts <= range.end;
   });
 
-  if (!entries24h.length) {
-    tbody.innerHTML = '<tr><td colspan="8">Aucune donnée sur les dernières 24h.</td></tr>';
+  if (!entriesInRange.length) {
+    tbody.innerHTML = '<tr><td colspan="8">Aucune donnée sur la période sélectionnée.</td></tr>';
     statusPill.textContent = 'En attente';
     statusPill.classList.remove('pass');
     statusPill.classList.add('fail');
@@ -359,7 +450,7 @@ async function genererRapportTest() {
   let allPass = true;
 
   for (let i = 0; i < NB_SONDES; i++) {
-    const sensorEntries = entries24h
+    const sensorEntries = entriesInRange
       .filter(entry => Number(entry.sondeIdx) === i)
       .sort((a, b) => parseEntryTimestamp(a) - parseEntryTimestamp(b));
     const target = targets[i] || { min: null, max: null };
@@ -383,7 +474,7 @@ async function genererRapportTest() {
     rows.push({ label: getSondeLabel(i), tmin: target.min, tmax: target.max, min, max, start, end, pass });
   }
 
-  const timestamps = entries24h.map(parseEntryTimestamp).filter(Boolean).sort((a, b) => a - b);
+  const timestamps = entriesInRange.map(parseEntryTimestamp).filter(Boolean).sort((a, b) => a - b);
   const testStart = timestamps[0];
   const testEnd = timestamps[timestamps.length - 1];
   const durationMs = testEnd - testStart;
@@ -433,13 +524,21 @@ async function genererRapportTest() {
 
 async function exporterExcelDepuisServeur() {
   const report = await genererRapportTest();
+  const rangeSelect = document.getElementById('report-range-select');
+  const rangeStart = document.getElementById('report-range-start');
+  const rangeEnd = document.getElementById('report-range-end');
   const payload = {
     chartImageBase64: captureGraphImage(),
     sensorLabels: Array.from({ length: NB_SONDES }, (_, index) => getSondeLabel(index)),
     colors: [...COULEURS],
     exportedAt: new Date().toISOString(),
     sensorTargets: getSondeTargetsCourants(),
-    report
+    report,
+    reportRange: {
+      mode: rangeSelect ? rangeSelect.value : '24h',
+      start: rangeStart && rangeStart.value ? new Date(rangeStart.value).toISOString() : null,
+      end: rangeEnd && rangeEnd.value ? new Date(rangeEnd.value).toISOString() : null
+    }
   };
 
   try {
@@ -540,11 +639,19 @@ function getVentilationConfigCourante() {
 }
 
 function getRuntimeStatePayload() {
+  const reportRangeSelect = document.getElementById('report-range-select');
+  const reportRangeStart = document.getElementById('report-range-start');
+  const reportRangeEnd = document.getElementById('report-range-end');
   return {
     activeProfile: profilActuel,
     sensorNames: [...SONDE_CUSTOM_NAMES],
     sensorPositions: getCurrentPositions(),
     sensorTargets: getSondeTargetsCourants(),
+    reportRange: {
+      mode: reportRangeSelect ? reportRangeSelect.value : '24h',
+      start: reportRangeStart ? reportRangeStart.value : '',
+      end: reportRangeEnd ? reportRangeEnd.value : ''
+    },
     ventilation: getVentilationConfigCourante()
   };
 }
@@ -587,6 +694,21 @@ async function chargerRuntimeStateDepuisServeur() {
     appliquerSondeTargets(state.sensorTargets);
   }
 
+  if (state.reportRange) {
+    const reportRangeSelect = document.getElementById('report-range-select');
+    const reportRangeStart = document.getElementById('report-range-start');
+    const reportRangeEnd = document.getElementById('report-range-end');
+    if (reportRangeSelect && ['24h', 'current', 'custom'].includes(state.reportRange.mode)) {
+      reportRangeSelect.value = state.reportRange.mode;
+    }
+    if (reportRangeStart && typeof state.reportRange.start === 'string') {
+      reportRangeStart.value = state.reportRange.start;
+    }
+    if (reportRangeEnd && typeof state.reportRange.end === 'string') {
+      reportRangeEnd.value = state.reportRange.end;
+    }
+  }
+
   if (state.ventilation) {
     appliquerConfigurationVentilateurs(state.ventilation);
   }
@@ -597,6 +719,7 @@ async function chargerRuntimeStateDepuisServeur() {
   }
 
   mettreAJourAffichageNomsSondes();
+  basculerVisibilitePlagePersonnalisee();
   return true;
 }
 
@@ -1616,22 +1739,86 @@ function restaurerEtatVentiloGroups() {
 
 let _specsTotemDebounce = null;
 
+function calculerSurplusThermiqueIndicatif(specs = {}) {
+  const baseWatt = Number(specs.watt);
+  if (!Number.isFinite(baseWatt) || baseWatt <= 0) {
+    return {
+      baseWatt: null,
+      coefficient: 1,
+      surplusWatt: null,
+      adjustedWatt: null,
+      appliedRule: false,
+      reason: 'Saisir une valeur de watt pour obtenir une estimation.'
+    };
+  }
+
+  const environment = String(specs.environment || '').toLowerCase();
+  const color = String(specs.color || '').toLowerCase();
+  const sunExposure = String(specs.sunExposure || '').toLowerCase();
+
+  let coefficient = 1;
+  let reason = 'Aucun surplus automatique appliqué.';
+
+  if (environment === 'outdoor' && color === 'noir' && sunExposure === 'sud') {
+    coefficient = 1.15;
+    reason = 'Règle appliquée: Outdoor + Noir + Sud = +15% (indicatif).';
+  }
+
+  const adjustedWatt = Number((baseWatt * coefficient).toFixed(1));
+  const surplusWatt = Number((adjustedWatt - baseWatt).toFixed(1));
+  return {
+    baseWatt,
+    coefficient,
+    surplusWatt,
+    adjustedWatt,
+    appliedRule: coefficient > 1,
+    reason
+  };
+}
+
+function mettreAJourSurplusThermiqueIndicatif(specs = {}) {
+  const valueEl = document.getElementById('totem-thermal-indicative-value');
+  const noteEl = document.getElementById('totem-thermal-indicative-note');
+  if (!valueEl || !noteEl) return;
+
+  const result = calculerSurplusThermiqueIndicatif(specs);
+  if (result.adjustedWatt === null) {
+    valueEl.textContent = 'Watt ajusté indicatif: --';
+    noteEl.textContent = 'Indicatif uniquement. Le débit nominal ventilateur reste manuel.';
+    return;
+  }
+
+  const coeffTxt = result.coefficient.toFixed(2);
+  const surplusTxt = result.surplusWatt > 0 ? ` (+${result.surplusWatt} W)` : '';
+  valueEl.textContent = `Watt ajusté indicatif: ${result.adjustedWatt} W (coef ${coeffTxt})${surplusTxt}`;
+  noteEl.textContent = `${result.reason} Le débit nominal ventilateur reste modifiable manuellement.`;
+}
+
 function afficherDimensionsTotem(specs) {
   const overlay = document.getElementById('totem-dims-overlay');
-  if (!overlay) return;
   const h = specs.height ? `${specs.height}` : null;
   const w = specs.width ? `${specs.width}` : null;
   const d = specs.depth ? `${specs.depth}` : null;
   const parts = [];
   if (specs.name) parts.push(`<b>${specs.name}</b>`);
   if (h || w || d) parts.push(`${h||'?'} × ${w||'?'} × ${d||'?'} mm`);
-  if (specs.watt) parts.push(`${specs.watt} W`);
+  const thermal = calculerSurplusThermiqueIndicatif(specs);
+  if (specs.watt) {
+    parts.push(`${specs.watt} W`);
+    if (thermal.appliedRule && thermal.adjustedWatt !== null) {
+      parts.push(`Ajusté indicatif: ${thermal.adjustedWatt} W`);
+    }
+  }
   if (parts.length === 0) {
-    overlay.classList.remove('visible');
+    if (overlay) overlay.classList.remove('visible');
+    mettreAJourSurplusThermiqueIndicatif(specs);
     return;
   }
-  overlay.innerHTML = parts.join('<br>');
-  overlay.classList.add('visible');
+  if (overlay) {
+    overlay.innerHTML = parts.join('<br>');
+    overlay.classList.add('visible');
+  }
+  mettreAJourSurplusThermiqueIndicatif(specs);
 }
 
 function _appliquerSpecsTotem(specs) {
@@ -1642,13 +1829,38 @@ function _appliquerSpecsTotem(specs) {
     ['totem-spec-depth', specs.depth],
     ['totem-spec-watt', specs.watt],
     ['totem-spec-environment', specs.environment],
-    ['totem-spec-color', specs.color]
+    ['totem-spec-color', specs.color],
+    ['totem-spec-sun-exposure', specs.sunExposure]
   ];
   fields.forEach(([id, value]) => {
     const el = document.getElementById(id);
     if (el && value !== undefined && value !== null) el.value = value;
   });
+  gererVisibiliteOptionsOutdoor(false);
   afficherDimensionsTotem(specs);
+}
+
+function gererVisibiliteOptionsOutdoor(persistIfCleared = false) {
+  const environment = document.getElementById('totem-spec-environment')?.value || '';
+  const outdoorOnlyIds = ['totem-outdoor-options', 'totem-sun-exposure-row'];
+  const isOutdoor = environment === 'outdoor';
+
+  outdoorOnlyIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.toggle('conditional-hidden', !isOutdoor);
+  });
+
+  if (!isOutdoor) {
+    const color = document.getElementById('totem-spec-color');
+    const sun = document.getElementById('totem-spec-sun-exposure');
+    let changed = false;
+    if (color && color.value) { color.value = ''; changed = true; }
+    if (sun && sun.value) { sun.value = ''; changed = true; }
+    if (persistIfCleared && changed) {
+      sauvegarderSpecsTotem();
+    }
+  }
 }
 
 function _lireSpecsDepuisDOM() {
@@ -1659,7 +1871,8 @@ function _lireSpecsDepuisDOM() {
     depth: document.getElementById('totem-spec-depth')?.value || '',
     watt: document.getElementById('totem-spec-watt')?.value || '',
     environment: document.getElementById('totem-spec-environment')?.value || '',
-    color: document.getElementById('totem-spec-color')?.value || ''
+    color: document.getElementById('totem-spec-color')?.value || '',
+    sunExposure: document.getElementById('totem-spec-sun-exposure')?.value || ''
   };
 }
 

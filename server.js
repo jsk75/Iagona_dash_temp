@@ -41,6 +41,7 @@ async function initPg() {
     createdAt TEXT,
     updatedAt TEXT
   )`);
+  await pgClient.query('ALTER TABLE profiles ADD COLUMN IF NOT EXISTS targets TEXT');
   await pgClient.query(`CREATE TABLE IF NOT EXISTS logs (
     id SERIAL PRIMARY KEY,
     sondeIdx INTEGER,
@@ -60,8 +61,10 @@ async function initPg() {
     watt TEXT,
     environment TEXT,
     color TEXT,
+    sunExposure TEXT,
     updatedAt TEXT
   )`);
+  await pgClient.query('ALTER TABLE totem_specs ADD COLUMN IF NOT EXISTS sunExposure TEXT');
   await pgClient.query(`CREATE TABLE IF NOT EXISTS app_config (
     key TEXT PRIMARY KEY,
     value TEXT,
@@ -116,8 +119,14 @@ sqliteDb.serialize(() => {
     watt TEXT,
     environment TEXT,
     color TEXT,
+    sunExposure TEXT,
     updatedAt TEXT
   )`, (err) => { if (err) console.error('SQLite CREATE TABLE totem_specs error', err); });
+  sqliteDb.run(`ALTER TABLE totem_specs ADD COLUMN sunExposure TEXT`, (err) => {
+    if (err && !String(err.message || '').includes('duplicate column name')) {
+      console.error('SQLite ALTER TABLE totem_specs sunExposure error', err);
+    }
+  });
   sqliteDb.run(`CREATE TABLE IF NOT EXISTS app_config (
     key TEXT PRIMARY KEY,
     value TEXT,
@@ -235,6 +244,33 @@ function trendLabel(values) {
   return 'Stable';
 }
 
+function computeIndicativeThermal(specs = {}) {
+  const baseWatt = Number(specs.watt);
+  if (!Number.isFinite(baseWatt) || baseWatt <= 0) {
+    return {
+      coefficient: 1,
+      adjustedWatt: null,
+      surplusWatt: null,
+      note: 'Watt non renseigné.'
+    };
+  }
+
+  const environment = String(specs.environment || '').toLowerCase();
+  const color = String(specs.color || '').toLowerCase();
+  const sunExposure = String(specs.sunExposure || '').toLowerCase();
+
+  let coefficient = 1;
+  let note = 'Aucun surplus automatique appliqué.';
+  if (environment === 'outdoor' && color === 'noir' && sunExposure === 'sud') {
+    coefficient = 1.15;
+    note = 'Règle appliquée: Outdoor + Noir + Sud = +15% (indicatif).';
+  }
+
+  const adjustedWatt = Number((baseWatt * coefficient).toFixed(1));
+  const surplusWatt = Number((adjustedWatt - baseWatt).toFixed(1));
+  return { coefficient, adjustedWatt, surplusWatt, note };
+}
+
 function parseMaybeJson(value, fallback) {
   try {
     return value ? JSON.parse(value) : fallback;
@@ -337,6 +373,7 @@ async function buildExcelExportBuffer(payload = {}) {
     colors = [],
     sensorTargets = [],
     report = null,
+    reportRange = null,
     specs = null,
     runtimeConfig = null,
     exportedAt = new Date().toISOString()
@@ -417,7 +454,9 @@ async function buildExcelExportBuffer(payload = {}) {
   const specsSheet = workbook.addWorksheet('Fiche Totem');
   specsSheet.columns = [{ width: 24 }, { width: 36 }];
   const resolvedSpecs = specs || {};
+  const thermalIndicative = computeIndicativeThermal(resolvedSpecs);
   const envLabel = { indoor: 'Indoor', outdoor: 'Outdoor' }[resolvedSpecs.environment] || resolvedSpecs.environment || '--';
+  const exposureLabel = resolvedSpecs.environment === 'outdoor' ? (resolvedSpecs.sunExposure || '--') : '--';
   [
     ['Fiche Totem', ''],
     ['Nom', resolvedSpecs.name || '--'],
@@ -430,8 +469,13 @@ async function buildExcelExportBuffer(payload = {}) {
     ['', ''],
     ['Technique', ''],
     ['Watt à dissiper', resolvedSpecs.watt ? `${resolvedSpecs.watt} W` : '--'],
+    ['Coefficient thermique indicatif', thermalIndicative.adjustedWatt === null ? '--' : thermalIndicative.coefficient.toFixed(2)],
+    ['Watt ajusté indicatif', thermalIndicative.adjustedWatt === null ? '--' : `${thermalIndicative.adjustedWatt} W`],
+    ['Surplus thermique indicatif', thermalIndicative.surplusWatt === null ? '--' : `${thermalIndicative.surplusWatt > 0 ? '+' : ''}${thermalIndicative.surplusWatt} W`],
     ['Environnement', envLabel],
-    ['Couleur', resolvedSpecs.color || '--']
+    ['Couleur', resolvedSpecs.environment === 'outdoor' ? (resolvedSpecs.color || '--') : '--'],
+    ['Exposition au soleil', exposureLabel],
+    ['Note', `${thermalIndicative.note} Le débit nominal ventilateur reste manuel.`]
   ].forEach(row => specsSheet.addRow(row));
 
   const configSheet = workbook.addWorksheet('Configuration');
@@ -499,6 +543,16 @@ async function buildExcelExportBuffer(payload = {}) {
   reportSheet.columns = [{ width: 30 }, { width: 30 }, { width: 22 }, { width: 22 }, { width: 18 }, { width: 18 }, { width: 18 }, { width: 16 }];
   reportSheet.addRow(['Rapport de test (24h)']);
   reportSheet.addRow(['Généré le', new Date(exportedAt).toLocaleString('fr-FR')]);
+  if (reportRange) {
+    const modeLabel = reportRange.mode === 'custom'
+      ? 'Intervalle personnalisé'
+      : reportRange.mode === 'current'
+        ? 'Test courant'
+        : 'Dernières 24h';
+    reportSheet.addRow(['Période sélectionnée', modeLabel]);
+    reportSheet.addRow(['Début sélection', reportRange.start ? new Date(reportRange.start).toLocaleString('fr-FR') : '--']);
+    reportSheet.addRow(['Fin sélection', reportRange.end ? new Date(reportRange.end).toLocaleString('fr-FR') : '--']);
+  }
   reportSheet.addRow([]);
 
   const resolvedReport = report || {};
@@ -705,28 +759,30 @@ app.get('/api/totem-specs', async (req, res) => {
 });
 
 app.post('/api/totem-specs', requireApiToken, async (req, res) => {
-  const { name, height, width, depth, watt, environment, color } = req.body;
+  const { name, height, width, depth, watt, environment, color, sunExposure } = req.body;
+  const resolvedColor = environment === 'outdoor' ? (color || '') : '';
+  const resolvedSunExposure = environment === 'outdoor' ? (sunExposure || '') : '';
   const now = new Date().toISOString();
   try {
     if (usePg && pgClient) {
       await pgClient.query(
-        `INSERT INTO totem_specs (id, name, height, width, depth, watt, environment, color, updatedAt)
-         VALUES (1, $1,$2,$3,$4,$5,$6,$7,$8)
+        `INSERT INTO totem_specs (id, name, height, width, depth, watt, environment, color, sunExposure, updatedAt)
+         VALUES (1, $1,$2,$3,$4,$5,$6,$7,$8,$9)
          ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, height=EXCLUDED.height, width=EXCLUDED.width, depth=EXCLUDED.depth,
-           watt=EXCLUDED.watt, environment=EXCLUDED.environment, color=EXCLUDED.color, updatedAt=EXCLUDED.updatedAt`,
-        [name||'', height||'', width||'', depth||'', watt||'', environment||'', color||'', now]
+           watt=EXCLUDED.watt, environment=EXCLUDED.environment, color=EXCLUDED.color, sunExposure=EXCLUDED.sunExposure, updatedAt=EXCLUDED.updatedAt`,
+        [name||'', height||'', width||'', depth||'', watt||'', environment||'', resolvedColor, resolvedSunExposure, now]
       );
-      return res.json({ name, height, width, depth, watt, environment, color, updatedAt: now });
+      return res.json({ name, height, width, depth, watt, environment, color: resolvedColor, sunExposure: resolvedSunExposure, updatedAt: now });
     }
     sqliteDb.run(
-      `INSERT INTO totem_specs (id, name, height, width, depth, watt, environment, color, updatedAt)
-       VALUES (1,?,?,?,?,?,?,?,?)
+      `INSERT INTO totem_specs (id, name, height, width, depth, watt, environment, color, sunExposure, updatedAt)
+       VALUES (1,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET name=excluded.name, height=excluded.height, width=excluded.width, depth=excluded.depth,
-         watt=excluded.watt, environment=excluded.environment, color=excluded.color, updatedAt=excluded.updatedAt`,
-      [name||'', height||'', width||'', depth||'', watt||'', environment||'', color||'', now],
+         watt=excluded.watt, environment=excluded.environment, color=excluded.color, sunExposure=excluded.sunExposure, updatedAt=excluded.updatedAt`,
+      [name||'', height||'', width||'', depth||'', watt||'', environment||'', resolvedColor, resolvedSunExposure, now],
       function (err) {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ name, height, width, depth, watt, environment, color, updatedAt: now });
+        res.json({ name, height, width, depth, watt, environment, color: resolvedColor, sunExposure: resolvedSunExposure, updatedAt: now });
       }
     );
   } catch (e) {
@@ -841,6 +897,8 @@ app.post('/api/export/excel', async (req, res) => {
       chartImageBase64: req.body && req.body.chartImageBase64,
       sensorLabels: req.body && req.body.sensorLabels,
       colors: req.body && req.body.colors,
+      sensorTargets: req.body && req.body.sensorTargets,
+      report: req.body && req.body.report,
       specs: resolvedSpecs,
       runtimeConfig: runtimeState,
       exportedAt: req.body && req.body.exportedAt
