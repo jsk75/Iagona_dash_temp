@@ -356,6 +356,18 @@
       outline: none;
       border-color: #555;
     }
+    input[id^="sonde-target-min-"],
+    input[id^="sonde-target-max-"] {
+      -moz-appearance: textfield;
+      appearance: textfield;
+    }
+    input[id^="sonde-target-min-"]::-webkit-outer-spin-button,
+    input[id^="sonde-target-min-"]::-webkit-inner-spin-button,
+    input[id^="sonde-target-max-"]::-webkit-outer-spin-button,
+    input[id^="sonde-target-max-"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
     .totem-dropzone {
       display: block;
       border: 1px dashed #3a3d4a;
@@ -1012,11 +1024,7 @@
             <option value="noir">Noir</option>
             <option value="blanc">Blanc</option>
             <option value="gris">Gris</option>
-            <option value="silver">Silver</option>
-            <option value="bleu">Bleu</option>
-            <option value="rouge">Rouge</option>
             <option value="vert">Vert</option>
-            <option value="autre">Autre</option>
           </select>
         </div>
       </div>

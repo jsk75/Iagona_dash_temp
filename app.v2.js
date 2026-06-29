@@ -1766,7 +1766,8 @@ function toggleCalculateurThermique() {
 
 function restaurerEtatCalculateurThermique() {
   try {
-    const isCollapsed = localStorage.getItem(THERMAL_CALCULATOR_COLLAPSED_KEY) === 'true';
+    const storedValue = localStorage.getItem(THERMAL_CALCULATOR_COLLAPSED_KEY);
+    const isCollapsed = storedValue === null ? true : storedValue === 'true';
     const content = document.getElementById('totem-calculator-content');
     const btn = document.getElementById('totem-calculator-toggle');
     if (!content || !btn) return;
@@ -1912,11 +1913,7 @@ function calculerSurplusThermiqueIndicatif(specs = {}) {
     noir: 0.95,
     blanc: 0.22,
     gris: 0.55,
-    silver: 0.40,
-    bleu: 0.70,
-    rouge: 0.75,
-    vert: 0.65,
-    autre: 0.60
+    vert: 0.65
   };
 
   const orientationFactor = orientationFactors[sunExposure] || 0.75;

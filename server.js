@@ -291,11 +291,7 @@ function computeIndicativeThermal(specs = {}, weatherContext = {}) {
     noir: 0.95,
     blanc: 0.22,
     gris: 0.55,
-    silver: 0.40,
-    bleu: 0.70,
-    rouge: 0.75,
-    vert: 0.65,
-    autre: 0.60
+    vert: 0.65
   };
 
   const orientationFactor = orientationFactors[sunExposure] || 0.75;
@@ -1013,7 +1009,21 @@ app.post('/api/export/excel', async (req, res) => {
       exportedAt: req.body && req.body.exportedAt
     });
 
-    const filename = `temperatures_${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.xlsx`;
+    const rawTotemName = String((resolvedSpecs && resolvedSpecs.name) || '').trim();
+    const safeTotemName = rawTotemName
+      ? rawTotemName
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-zA-Z0-9 _-]/g, ' ')
+          .trim()
+          .replace(/\s+/g, '_')
+      : '';
+    const now = new Date();
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const timestamp = `${String(now.getFullYear()).slice(-2)}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}-${pad2(now.getHours())}-${pad2(now.getMinutes())}`;
+    const filename = safeTotemName
+      ? `${safeTotemName}_${timestamp}.xlsx`
+      : `temperatures_${timestamp}.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(Buffer.from(buffer));
