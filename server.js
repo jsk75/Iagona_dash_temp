@@ -312,7 +312,8 @@ function computeIndicativeThermal(specs = {}, weatherContext = {}) {
     windFactor = clamp(Math.pow(ratio, -0.12), 0.88, 1.08);
   }
 
-  const coefficient = clamp(orientationFactor * colorFactor * solarFactor * windFactor, 0.85, 1.65);
+  const rawCoefficient = clamp(orientationFactor * colorFactor * solarFactor * windFactor, 0.85, 1.65);
+  const coefficient = Math.max(1, rawCoefficient);
 
   const climateBits = [
     Number.isFinite(solar) ? `irradiation ${solar.toFixed(1)} MJ/m²/j` : null,

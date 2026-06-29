@@ -1930,7 +1930,8 @@ function calculerSurplusThermiqueIndicatif(specs = {}) {
     windFactor = windMeta.factor;
   }
 
-  const coefficient = clamp(orientationFactor * colorFactor * solarFactor * windFactor, 0.85, 1.65);
+  const rawCoefficient = clamp(orientationFactor * colorFactor * solarFactor * windFactor, 0.85, 1.65);
+  const coefficient = Math.max(1, rawCoefficient);
   const climateBits = [
     Number.isFinite(solar) ? `irradiation ${solar.toFixed(1)} MJ/m²/j` : null,
     Number.isFinite(wind) ? `vent ${wind.toFixed(1)} km/h` : null,
@@ -1978,14 +1979,14 @@ function mettreAJourSurplusThermiqueIndicatif(specs = {}) {
   }
 
   if (result.adjustedWatt === null) {
-    valueEl.textContent = 'Watt ajusté indicatif: --';
+    valueEl.textContent = 'Watt déclaré + surplus = total estimé: --';
     noteEl.textContent = 'Indicatif uniquement. Le débit nominal ventilateur reste manuel.';
     return;
   }
 
   const coeffTxt = result.coefficient.toFixed(2);
-  const surplusTxt = result.surplusWatt > 0 ? ` (+${result.surplusWatt} W)` : '';
-  valueEl.textContent = `Watt ajusté indicatif: ${result.adjustedWatt} W (coef ${coeffTxt})${surplusTxt}`;
+  const surplusTxt = result.surplusWatt > 0 ? `+${result.surplusWatt}` : '0.0';
+  valueEl.textContent = `Watt déclaré + surplus = total estimé: ${result.baseWatt.toFixed(1)} W + ${surplusTxt} W = ${result.adjustedWatt} W (coef ${coeffTxt})`;
   noteEl.textContent = `${result.reason} Le débit nominal ventilateur reste modifiable manuellement.`;
 }
 
@@ -1999,9 +2000,10 @@ function afficherDimensionsTotem(specs) {
   if (h || w || d) parts.push(`${h||'?'} × ${w||'?'} × ${d||'?'} mm`);
   const thermal = calculerSurplusThermiqueIndicatif(specs);
   if (specs.watt) {
-    parts.push(`${specs.watt} W`);
-    if (thermal.appliedRule && thermal.adjustedWatt !== null) {
-      parts.push(`Ajusté indicatif: ${thermal.adjustedWatt} W`);
+    parts.push(`Déclaré: ${specs.watt} W`);
+    if (thermal.adjustedWatt !== null) {
+      parts.push(`Surplus: +${Math.max(0, thermal.surplusWatt || 0).toFixed(1)} W`);
+      parts.push(`Total estimé: ${thermal.adjustedWatt} W`);
     }
   }
   if (parts.length === 0) {
