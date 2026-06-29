@@ -796,14 +796,74 @@
       padding: 18px 28px;
       text-align: center;
       min-width: 140px;
-      transition: border-color 0.3s;
+      transition: border-color 0.3s, box-shadow 0.3s;
     }
     .card.active { border-color: var(--color); }
+    .card.alert-high {
+      border-color: #ff6b6b !important;
+      box-shadow: 0 0 0 1px rgba(255, 107, 107, 0.25), 0 0 18px rgba(255, 107, 107, 0.15);
+    }
+    .card.alert-low {
+      border-color: #60a5fa !important;
+      box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.25), 0 0 18px rgba(96, 165, 250, 0.15);
+    }
     .card-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
     .card-temp { font-size: 36px; font-weight: 700; color: var(--color); line-height: 1; }
     .card-unit { font-size: 16px; color: #888; margin-left: 2px; }
     .card-status { font-size: 10px; color: #555; margin-top: 6px; }
+    .card-status.alert-high-text { color: #ff8f8f; font-weight: 700; }
+    .card-status.alert-low-text { color: #8ec5ff; font-weight: 700; }
     .card-meteo { border: 1px dashed #444; }
+    .monitor-alert-popup {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      z-index: 1200;
+      min-width: 290px;
+      max-width: 420px;
+      border-radius: 10px;
+      padding: 12px 14px;
+      border: 1px solid #2a2d3a;
+      background: #1a1d27;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+      opacity: 0;
+      transform: translateY(-10px);
+      pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    .monitor-alert-popup.show {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+    .monitor-alert-popup.alert-high {
+      border-color: rgba(255, 107, 107, 0.55);
+      box-shadow: 0 12px 30px rgba(120, 20, 20, 0.35);
+    }
+    .monitor-alert-popup.alert-low {
+      border-color: rgba(96, 165, 250, 0.55);
+      box-shadow: 0 12px 30px rgba(20, 55, 120, 0.35);
+    }
+    .monitor-alert-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: #f3f4f6;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .monitor-alert-close {
+      border: 1px solid #3a3d4a;
+      background: transparent;
+      color: #aeb4c4;
+      border-radius: 6px;
+      font-size: 11px;
+      padding: 2px 6px;
+      cursor: pointer;
+    }
+    .monitor-alert-close:hover { color: #fff; border-color: #5a6278; }
+    .monitor-alert-text { font-size: 12px; color: #d8dce8; }
 
     .controls { display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
     .controls label { font-size: 12px; color: #888; margin-right: 4px; }

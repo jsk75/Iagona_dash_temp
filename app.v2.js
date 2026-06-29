@@ -88,8 +88,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const minInput = document.getElementById(`sonde-target-min-${i}`);
     const maxInput = document.getElementById(`sonde-target-max-${i}`);
-    if (minInput) minInput.addEventListener('input', planifierSauvegardeRuntimeState);
-    if (maxInput) maxInput.addEventListener('input', planifierSauvegardeRuntimeState);
+    if (minInput) minInput.addEventListener('input', () => {
+      planifierSauvegardeRuntimeState();
+      reevaluerAlertesMonitoring();
+    });
+    if (maxInput) maxInput.addEventListener('input', () => {
+      planifierSauvegardeRuntimeState();
+      reevaluerAlertesMonitoring();
+    });
   }
 
   // Système de ventilation
@@ -196,6 +202,9 @@ const logComplet = [];
 const MAX_LIGNES_AFFICHEES = 50;
 let clientMQTT = null;
 let modeSelectionne = "AUTO";
+const derniersEtatsAlerte = Array(NB_SONDES).fill('normal');
+const dernieresTemperatures = Array(NB_SONDES).fill(null);
+let popupAlerteTimeout = null;
 
 let latActuelle = 48.8566;
 let lonActuelle = 2.3522;
@@ -307,6 +316,95 @@ function appliquerSondeTargets(targets) {
     const maxInput = document.getElementById(`sonde-target-max-${i}`);
     if (minInput) minInput.value = row.min === null || row.min === undefined ? '' : row.min;
     if (maxInput) maxInput.value = row.max === null || row.max === undefined ? '' : row.max;
+  }
+  reevaluerAlertesMonitoring();
+}
+
+function evaluerAlerteSonde(idx, temp) {
+  if (!Number.isFinite(temp)) return null;
+  const targets = getSondeTargetsCourants();
+  const target = targets[idx] || { min: null, max: null };
+
+  if (target.max !== null && temp > target.max) {
+    return {
+      level: 'high',
+      message: `ALERTE MAX: ${temp.toFixed(2)} °C > ${target.max.toFixed(2)} °C`
+    };
+  }
+  if (target.min !== null && temp < target.min) {
+    return {
+      level: 'low',
+      message: `ALERTE MIN: ${temp.toFixed(2)} °C < ${target.min.toFixed(2)} °C`
+    };
+  }
+  return null;
+}
+
+function afficherPopupAlerteMonitoring(idx, message, level) {
+  let popup = document.getElementById('monitor-alert-popup');
+  if (!popup) {
+    popup = document.createElement('div');
+    popup.id = 'monitor-alert-popup';
+    popup.className = 'monitor-alert-popup';
+    popup.innerHTML = `
+      <div class="monitor-alert-title">
+        <span id="monitor-alert-title-text"></span>
+        <button class="monitor-alert-close" id="monitor-alert-close-btn" type="button">Fermer</button>
+      </div>
+      <div class="monitor-alert-text" id="monitor-alert-text"></div>
+    `;
+    document.body.appendChild(popup);
+    const closeBtn = popup.querySelector('#monitor-alert-close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        popup.classList.remove('show');
+      });
+    }
+  }
+
+  const titleEl = document.getElementById('monitor-alert-title-text');
+  const textEl = document.getElementById('monitor-alert-text');
+  if (titleEl) titleEl.textContent = `Alerte ${level === 'high' ? 'max' : 'min'} - ${getSondeLabel(idx)}`;
+  if (textEl) textEl.textContent = `${message} (${new Date().toLocaleTimeString('fr-FR')})`;
+
+  popup.classList.remove('alert-high', 'alert-low');
+  popup.classList.add(level === 'high' ? 'alert-high' : 'alert-low');
+  popup.classList.add('show');
+
+  if (popupAlerteTimeout) clearTimeout(popupAlerteTimeout);
+  popupAlerteTimeout = setTimeout(() => {
+    popup.classList.remove('show');
+  }, 9000);
+}
+
+function appliquerAlerteMonitoring(idx, temp, now = new Date()) {
+  const card = cardEls[idx];
+  const statusEl = document.getElementById(`age-${idx}`);
+  if (!card || !statusEl) return;
+
+  const etatPrecedent = derniersEtatsAlerte[idx] || 'normal';
+  const alert = evaluerAlerteSonde(idx, temp);
+  card.classList.remove('alert-high', 'alert-low');
+  statusEl.classList.remove('alert-high-text', 'alert-low-text');
+
+  if (alert) {
+    card.classList.add(alert.level === 'high' ? 'alert-high' : 'alert-low');
+    statusEl.classList.add(alert.level === 'high' ? 'alert-high-text' : 'alert-low-text');
+    statusEl.textContent = alert.message;
+    if (etatPrecedent !== alert.level) {
+      afficherPopupAlerteMonitoring(idx, alert.message, alert.level);
+    }
+  } else {
+    statusEl.textContent = 'Mis à jour ' + now.toLocaleTimeString('fr-FR');
+  }
+
+  derniersEtatsAlerte[idx] = alert ? alert.level : 'normal';
+}
+
+function reevaluerAlertesMonitoring() {
+  for (let i = 0; i < NB_SONDES; i++) {
+    if (!Number.isFinite(dernieresTemperatures[i])) continue;
+    appliquerAlerteMonitoring(i, dernieresTemperatures[i], new Date());
   }
 }
 
@@ -1345,12 +1443,12 @@ function demarrerMQTT() {
       if (idx === -1 || isNaN(temp)) return;
 
       donnees[idx].push({ t: now, v: temp });
+      dernieresTemperatures[idx] = temp;
       ajouterAuLog(idx, temp, now);
       document.getElementById(`temp-${idx}`).innerHTML = temp.toFixed(2) + '<span class="card-unit">°C</span>';
       
       updateTotemTemp(idx, temp);
-      
-      document.getElementById(`age-${idx}`).textContent = 'Mis à jour ' + now.toLocaleTimeString('fr-FR');
+      appliquerAlerteMonitoring(idx, temp, now);
       cardEls[idx].classList.add('active');
     } catch(e) { }
   });
