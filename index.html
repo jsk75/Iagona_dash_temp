@@ -328,6 +328,34 @@
       flex: 1;
       min-width: 0;
     }
+    .targets-grid {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .target-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      align-items: center;
+    }
+    .target-row label {
+      font-size: 11px;
+      color: #aaa;
+    }
+    .target-row input {
+      width: 100%;
+      padding: 7px 8px;
+      background: #0f1117;
+      border: 1px solid #2a2d3a;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 12px;
+    }
+    .target-row input:focus {
+      outline: none;
+      border-color: #555;
+    }
     .totem-dropzone {
       display: block;
       border: 1px dashed #3a3d4a;
@@ -750,6 +778,90 @@
     tbody tr:nth-child(even) { background: #1e2130; }
     tbody td { padding: 5px 8px; color: #ccc; border-bottom: 1px solid #1e2130; }
     tbody td.temp-val { font-weight: 600; }
+
+    .test-report-wrap {
+      background: #1a1d27;
+      border: 1px solid #2a2d3a;
+      border-radius: 12px;
+      padding: 16px;
+      margin: 16px 20px 0 20px;
+    }
+    .test-report-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .test-report-title {
+      font-size: 13px;
+      color: #aaa;
+    }
+    .report-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .report-kpi {
+      background: #0f1117;
+      border: 1px solid #2a2d3a;
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .report-kpi-label {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .report-kpi-value {
+      font-size: 15px;
+      color: #fff;
+      font-weight: 600;
+    }
+    .test-status {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+    .test-status.pass {
+      background: rgba(39, 174, 96, 0.2);
+      color: #4ee285;
+      border: 1px solid rgba(78, 226, 133, 0.4);
+    }
+    .test-status.fail {
+      background: rgba(231, 76, 60, 0.18);
+      color: #ff8578;
+      border: 1px solid rgba(255, 133, 120, 0.4);
+    }
+    .test-report-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .test-report-table th,
+    .test-report-table td {
+      border-bottom: 1px solid #2a2d3a;
+      padding: 8px;
+      text-align: left;
+      color: #ccc;
+    }
+    .test-report-table th {
+      color: #888;
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 0.5px;
+    }
+    .sensor-result-pass { color: #4ee285; font-weight: 700; }
+    .sensor-result-fail { color: #ff8578; font-weight: 700; }
   </style>
 </head>
 <body>
@@ -948,6 +1060,34 @@
           <button id="profile-save-btn" class="export-btn" type="button">Enregistrer</button>
           <button id="profile-delete-btn" class="clear-btn" type="button">Supprimer</button>
         </div>
+        <div class="targets-grid" id="targets-grid">
+          <div class="section-title" style="margin-bottom:0;">Cibles Températures (°C)</div>
+          <div class="target-row">
+            <label>Sonde 1</label>
+            <input id="sonde-target-min-0" type="number" step="0.1" placeholder="Min">
+            <input id="sonde-target-max-0" type="number" step="0.1" placeholder="Max">
+          </div>
+          <div class="target-row">
+            <label>Sonde 2</label>
+            <input id="sonde-target-min-1" type="number" step="0.1" placeholder="Min">
+            <input id="sonde-target-max-1" type="number" step="0.1" placeholder="Max">
+          </div>
+          <div class="target-row">
+            <label>Sonde 3</label>
+            <input id="sonde-target-min-2" type="number" step="0.1" placeholder="Min">
+            <input id="sonde-target-max-2" type="number" step="0.1" placeholder="Max">
+          </div>
+          <div class="target-row">
+            <label>Sonde 4</label>
+            <input id="sonde-target-min-3" type="number" step="0.1" placeholder="Min">
+            <input id="sonde-target-max-3" type="number" step="0.1" placeholder="Max">
+          </div>
+          <div class="target-row">
+            <label>Sonde 5</label>
+            <input id="sonde-target-min-4" type="number" step="0.1" placeholder="Min">
+            <input id="sonde-target-max-4" type="number" step="0.1" placeholder="Max">
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1046,6 +1186,57 @@
         <tr><th>Date</th><th>Heure</th><th>Sonde</th><th>Température</th></tr>
       </thead>
       <tbody id="log-tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="test-report-wrap" id="test-report-wrap">
+    <div class="test-report-header">
+      <div class="test-report-title">Rapport de Test (24h)</div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span id="test-status-pill" class="test-status fail">En attente</span>
+        <button id="test-report-btn" class="export-btn" type="button">Générer Rapport</button>
+      </div>
+    </div>
+    <div class="report-summary-grid">
+      <div class="report-kpi">
+        <div class="report-kpi-label">Début Test</div>
+        <div class="report-kpi-value" id="report-start">--</div>
+      </div>
+      <div class="report-kpi">
+        <div class="report-kpi-label">Fin Test</div>
+        <div class="report-kpi-value" id="report-end">--</div>
+      </div>
+      <div class="report-kpi">
+        <div class="report-kpi-label">Durée Test</div>
+        <div class="report-kpi-value" id="report-duration">--</div>
+      </div>
+      <div class="report-kpi">
+        <div class="report-kpi-label">Temp. Extérieure (Début → Fin)</div>
+        <div class="report-kpi-value" id="report-ext-range">--</div>
+      </div>
+      <div class="report-kpi">
+        <div class="report-kpi-label">Temp. Intérieure Moy. (Début → Fin)</div>
+        <div class="report-kpi-value" id="report-int-range">--</div>
+      </div>
+      <div class="report-kpi">
+        <div class="report-kpi-label">Résultat Journée</div>
+        <div class="report-kpi-value" id="report-result">--</div>
+      </div>
+    </div>
+    <table class="test-report-table">
+      <thead>
+        <tr>
+          <th>Sonde</th>
+          <th>Cible Min</th>
+          <th>Cible Max</th>
+          <th>Mesure Min</th>
+          <th>Mesure Max</th>
+          <th>Début</th>
+          <th>Fin</th>
+          <th>Statut</th>
+        </tr>
+      </thead>
+      <tbody id="test-report-tbody"></tbody>
     </table>
   </div>
 </div>
