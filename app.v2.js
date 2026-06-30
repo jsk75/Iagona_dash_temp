@@ -202,8 +202,8 @@ const logComplet = [];
 const MAX_LIGNES_AFFICHEES = 50;
 let clientMQTT = null;
 let modeSelectionne = "AUTO";
-const derniersEtatsAlerte = Array(NB_SONDES).fill('normal');
-const dernieresTemperatures = Array(NB_SONDES).fill(null);
+const derniersEtatsAlerte = Array(5).fill('normal');
+const dernieresTemperatures = Array(5).fill(null);
 let popupAlerteTimeout = null;
 
 let latActuelle = 48.8566;
@@ -1410,19 +1410,55 @@ document.getElementById('time-btns').addEventListener('click', e => {
 });
 
 function demarrerMQTT() {
+  const dotEl = document.getElementById('dot');
+  const statusEl = document.getElementById('status-text');
+  if (typeof mqtt === 'undefined') {
+    if (dotEl) dotEl.classList.remove('connected');
+    if (statusEl) statusEl.textContent = 'Erreur MQTT: librairie non chargée';
+    return;
+  }
+
   const clientId = 'dashboard_' + Math.random().toString(16).slice(2, 8);
-  clientMQTT = mqtt.connect(`wss://${MQTT_HOST}:${MQTT_PORT}/mqtt`, { clientId, clean: true, reconnectPeriod: 3000, connectTimeout: 10000 });
+  clientMQTT = mqtt.connect(`wss://${MQTT_HOST}:${MQTT_PORT}/mqtt`, {
+    clientId,
+    clean: true,
+    reconnectPeriod: 3000,
+    connectTimeout: 10000,
+    keepalive: 30,
+    protocolVersion: 4
+  });
 
   clientMQTT.on('connect', () => {
-    document.getElementById('dot').classList.add('connected');
-    document.getElementById('status-text').textContent = 'Connecté à ' + MQTT_HOST;
+    if (dotEl) dotEl.classList.add('connected');
+    if (statusEl) statusEl.textContent = 'Connecté à ' + MQTT_HOST;
     for (let i = 0; i < NB_SONDES; i++) clientMQTT.subscribe(`${TOPIC_ROOT}/${NOMS[i]}`);
     clientMQTT.subscribe("temperatures/ventilateurs");
   });
 
+  clientMQTT.on('reconnect', () => {
+    if (dotEl) dotEl.classList.remove('connected');
+    if (statusEl) statusEl.textContent = 'Reconnexion MQTT...';
+  });
+
+  clientMQTT.on('offline', () => {
+    if (dotEl) dotEl.classList.remove('connected');
+    if (statusEl) statusEl.textContent = 'MQTT hors ligne';
+  });
+
+  clientMQTT.on('close', () => {
+    if (dotEl) dotEl.classList.remove('connected');
+    if (statusEl) statusEl.textContent = 'Déconnecté — reconnexion...';
+  });
+
   clientMQTT.on('disconnect', () => {
-    document.getElementById('dot').classList.remove('connected');
-    document.getElementById('status-text').textContent = 'Déconnecté — reconnexion...';
+    if (dotEl) dotEl.classList.remove('connected');
+    if (statusEl) statusEl.textContent = 'Déconnecté par le broker';
+  });
+
+  clientMQTT.on('error', (err) => {
+    if (dotEl) dotEl.classList.remove('connected');
+    if (statusEl) statusEl.textContent = `Erreur MQTT: ${(err && err.message) ? err.message : 'inconnue'}`;
+    console.warn('MQTT error:', err);
   });
 
   clientMQTT.on('message', (topic, message) => {
