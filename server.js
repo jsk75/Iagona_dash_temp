@@ -15,7 +15,40 @@ const MQTT_PORT = parseInt(process.env.MQTT_PORT || '8884', 10);
 const TOPIC_ROOT = process.env.TOPIC_ROOT || 'temperatures';
 const NB_SONDES = parseInt(process.env.NB_SONDES || '5', 10);
 const SONDE_NAMES = Array.from({ length: NB_SONDES }, (_, i) => `Sonde${i + 1}`);
+const LOG_MIN_INTERVAL_MS = parseInt(process.env.LOG_MIN_INTERVAL_MS || '10000', 10);
+const LOG_INTERVAL_CONFIG_KEY = 'log_min_interval_ms';
+const ALLOWED_LOG_INTERVALS = [10000, 20000, 30000, 60000, 120000, 180000];
 let mqttClient = null;
+const lastLogTimestamps = new Map();
+let runtimeLogMinIntervalMs = LOG_MIN_INTERVAL_MS;
+
+function normalizeLogIntervalMs(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return LOG_MIN_INTERVAL_MS;
+  return ALLOWED_LOG_INTERVALS.includes(parsed) ? parsed : LOG_MIN_INTERVAL_MS;
+}
+
+async function loadRuntimeLogIntervalSetting() {
+  try {
+    const entry = await getAppConfig(LOG_INTERVAL_CONFIG_KEY);
+    if (!entry) return;
+    const parsed = parseMaybeJson(entry.value, entry.value);
+    runtimeLogMinIntervalMs = normalizeLogIntervalMs(parsed);
+  } catch (error) {
+    console.warn('Unable to load log interval setting:', error.message);
+  }
+}
+
+function canInsertLogNow(sondeIdx) {
+  if (!Number.isFinite(sondeIdx)) return true;
+  const now = Date.now();
+  const lastTs = lastLogTimestamps.get(sondeIdx) || 0;
+  if (now - lastTs < runtimeLogMinIntervalMs) {
+    return false;
+  }
+  lastLogTimestamps.set(sondeIdx, now);
+  return true;
+}
 
 const usePg = !!process.env.DATABASE_URL;
 let pgClient = null;
@@ -762,6 +795,7 @@ function startMqttBackupConsumer() {
     if (!payload) return;
 
     try {
+      if (!canInsertLogNow(payload.sondeIdx)) return;
       await insertLogRecord(payload);
     } catch (error) {
       console.error('MQTT backup insert error', error.message);
@@ -910,6 +944,9 @@ app.post('/api/config/:key', requireApiToken, async (req, res) => {
   try {
     const { value } = req.body || {};
     const saved = await setAppConfig(req.params.key, value);
+    if (req.params.key === LOG_INTERVAL_CONFIG_KEY) {
+      runtimeLogMinIntervalMs = normalizeLogIntervalMs(value);
+    }
     res.json(saved);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -936,6 +973,9 @@ app.post('/api/logs', requireApiToken, async (req, res) => {
   const { sondeIdx, label, temp, date, heure, ts } = req.body;
   if (typeof sondeIdx !== 'number' || typeof temp !== 'number') return res.status(400).json({ error: 'Payload invalide' });
   try {
+    if (!canInsertLogNow(sondeIdx)) {
+      return res.json({ skipped: true, reason: 'throttled', minIntervalMs: runtimeLogMinIntervalMs });
+    }
     const saved = await insertLogRecord({ sondeIdx, label, temp, date, heure, ts, createdAt: new Date().toISOString() });
     return res.json(saved);
   } catch (e) {
@@ -1036,5 +1076,6 @@ app.post('/api/export/excel', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`API server running on port ${PORT} (usePg=${usePg})`);
+  loadRuntimeLogIntervalSetting();
   startMqttBackupConsumer();
 });

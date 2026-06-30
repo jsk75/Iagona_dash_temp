@@ -193,6 +193,11 @@ document.addEventListener('DOMContentLoaded', () => {
   demarrerMQTT();
   basculerVisibilitePlagePersonnalisee();
   genererRapportTest();
+  
+  // Initialiser les cartes, le graphique et le rafraîchissement (après que le DOM soit prêt)
+  initialiserCartesSondes();
+  initialiserGraphique();
+  demarrerRafraichirGraphique();
 });
 
 // ---- rest of application logic (extracted) ----
@@ -713,6 +718,8 @@ const DEFINITION_TAB_COLLAPSED_KEY = 'definition_tab_collapsed';
 const PROFILS_TAB_COLLAPSED_KEY = 'profils_tab_collapsed';
 const IMAGE_TAB_COLLAPSED_KEY = 'image_tab_collapsed';
 const THERMAL_CALCULATOR_COLLAPSED_KEY = 'thermal_calculator_collapsed';
+const LOG_INTERVAL_CONFIG_KEY = 'log_min_interval_ms';
+const ALLOWED_REFRESH_INTERVALS = [10000, 20000, 30000, 60000, 120000, 180000];
 let profilsEnregistres = {};
 let profilActuel = 'default';
 let totemImageLibrary = [];
@@ -1249,14 +1256,18 @@ function mettreAJourAffichageNomsSondes() {
 }
 
 let fenetreSec = 30;
+let intervalMesurage = 30000; // ms (défaut 30 secondes)
 const donnees = Array.from({length: NB_SONDES}, () => []);
 const donneesExterieures = [];
 
-const cardsEl = document.getElementById('cards');
-const cardEls = [];
-const totemSensors = document.querySelectorAll(".sensor");
+let cardsEl = null;
+let cardEls = [];
+let totemSensors = [];
+let chart = null;
+let chartInitialisé = false;
 
 function initTotemSensors() {
+  totemSensors = document.querySelectorAll(".sensor");
   loadTotemPositions();
 
   totemSensors.forEach(sensor => {
@@ -1335,79 +1346,167 @@ function updateTotemTemp(idx, temp) {
   if (el) el.textContent = temp.toFixed(2) + " °C";
 }
 
-for (let i = 0; i < NB_SONDES; i++) {
-  const div = document.createElement('div');
-  div.className = 'card';
-  div.style.setProperty('--color', COULEURS[i]);
-  div.innerHTML = `<div class="card-label">${getSondeLabel(i)}</div><div class="card-temp" id="temp-${i}">--<span class="card-unit">°C</span></div><div class="card-status" id="age-${i}">En attente...</div>`;
-  cardsEl.appendChild(div);
-  cardEls.push(div);
-}
-
-const divMeteo = document.createElement('div');
-divMeteo.className = 'card card-meteo';
-divMeteo.style.setProperty('--color', '#ffeb3b'); 
-divMeteo.innerHTML = `<div class="card-label" id="meteo-ville">Extérieur (Météo)</div><div class="card-temp" id="meteo-temp">--<span class="card-unit">°C</span></div><div class="card-status" id="meteo-status">Recherche localisation...</div>`;
-cardsEl.appendChild(divMeteo);
-
-const legendEl = document.getElementById('legend');
-for (let i = 0; i < NB_SONDES; i++) {
-  legendEl.innerHTML += `<div class="legend-item"><div class="legend-dot" style="background:${COULEURS[i]}"></div>${getSondeLabel(i)}</div>`;
-}
-
-const statsEl = document.getElementById('stats');
-for (let i = 0; i < NB_SONDES; i++) {
-  statsEl.innerHTML += `
-    <div class="stat-box"><div class="stat-label" style="color:${COULEURS[i]}">${getSondeLabel(i)} — Min</div><div class="stat-value" id="min-${i}" style="color:${COULEURS[i]}">--</div></div>
-    <div class="stat-box"><div class="stat-label" style="color:${COULEURS[i]}">${getSondeLabel(i)} — Max</div><div class="stat-value" id="max-${i}" style="color:${COULEURS[i]}">--</div></div>
-    <div class="stat-box"><div class="stat-label" style="color:${COULEURS[i]}">${getSondeLabel(i)} — Moy</div><div class="stat-value" id="moy-${i}" style="color:${COULEURS[i]}">--</div></div>`;
-}
-
-const ctx = document.getElementById('tempChart').getContext('2d');
-const datasets = COULEURS.slice(0, NB_SONDES).map((c, i) => ({
-  label: NOMS[i], data: [], borderColor: c, backgroundColor: c + '18', borderWidth: 2, pointRadius: 2, pointHoverRadius: 5, tension: 0.3, fill: false,
-}));
-
-const chart = new Chart(ctx, {
-  type: 'line',
-  data: { datasets },
-  options: {
-    animation: false, responsive: true,
-    interaction: { mode: 'index', intersect: false },
-    scales: {
-      x: { type: 'time', time: { tooltipFormat: 'HH:mm:ss', displayFormats: { second: 'HH:mm:ss', minute: 'HH:mm', hour: 'HH:mm', day: 'DD/MM HH:mm' } }, ticks: { color: '#666', maxTicksLimit: 8 }, grid: { color: '#1e2130' } },
-      y: { ticks: { color: '#666', callback: v => v.toFixed(1) + ' °C' }, grid: { color: '#1e2130' } }
-    },
-    plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a1d27', borderColor: '#2a2d3a', borderWidth: 1, titleColor: '#aaa', bodyColor: '#fff', callbacks: { label: ctx => ` ${ctx.dataset.label} : ${ctx.parsed.y.toFixed(2)} °C` } } }
-  }
-});
-
-function rafraichirGraphique() {
-  const maintenant = new Date();
-  const limiteDebut = new Date(maintenant - fenetreSec * 1000);
-
+function initialiserCartesSondes() {
+  cardsEl = document.getElementById('cards');
+  if (!cardsEl) return;
+  cardEls = [];
+  
   for (let i = 0; i < NB_SONDES; i++) {
-    const ptsAffiches = donnees[i].filter(p => p.t >= limiteDebut);
-    chart.data.datasets[i].data = ptsAffiches.map(p => ({ x: p.t, y: p.v }));
-    donnees[i] = donnees[i].filter(p => p.t >= new Date(maintenant - 86400 * 1000));
+    const div = document.createElement('div');
+    div.className = 'card';
+    div.style.setProperty('--color', COULEURS[i]);
+    div.innerHTML = `<div class="card-label">${getSondeLabel(i)}</div><div class="card-temp" id="temp-${i}">--<span class="card-unit">°C</span></div><div class="card-status" id="age-${i}">En attente...</div>`;
+    cardsEl.appendChild(div);
+    cardEls.push(div);
+  }
 
-    if (ptsAffiches.length > 0) {
-      const vals = ptsAffiches.map(p => p.v);
-      document.getElementById(`min-${i}`).textContent = Math.min(...vals).toFixed(1) + ' °C';
-      document.getElementById(`max-${i}`).textContent = Math.max(...vals).toFixed(1) + ' °C';
-      document.getElementById(`moy-${i}`).textContent = (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) + ' °C';
+  const divMeteo = document.createElement('div');
+  divMeteo.className = 'card card-meteo';
+  divMeteo.style.setProperty('--color', '#ffeb3b'); 
+  divMeteo.innerHTML = `<div class="card-label" id="meteo-ville">Extérieur (Météo)</div><div class="card-temp" id="meteo-temp">--<span class="card-unit">°C</span></div><div class="card-status" id="meteo-status">Recherche localisation...</div>`;
+  cardsEl.appendChild(divMeteo);
+
+  const legendEl = document.getElementById('legend');
+  if (legendEl) {
+    for (let i = 0; i < NB_SONDES; i++) {
+      legendEl.innerHTML += `<div class="legend-item"><div class="legend-dot" style="background:${COULEURS[i]}"></div>${getSondeLabel(i)}</div>`;
     }
   }
-  chart.update('none');
-}
-setInterval(rafraichirGraphique, 1000);
 
-document.getElementById('time-btns').addEventListener('click', e => {
-  if (!e.target.dataset.s) return;
-  fenetreSec = parseInt(e.target.dataset.s);
-  document.querySelectorAll('#time-btns button').forEach(b => b.classList.remove('active'));
-  e.target.classList.add('active');
-});
+  const statsEl = document.getElementById('stats');
+  if (statsEl) {
+    for (let i = 0; i < NB_SONDES; i++) {
+      statsEl.innerHTML += `
+        <div class="stat-box"><div class="stat-label" style="color:${COULEURS[i]}">${getSondeLabel(i)} — Min</div><div class="stat-value" id="min-${i}" style="color:${COULEURS[i]}">--</div></div>
+        <div class="stat-box"><div class="stat-label" style="color:${COULEURS[i]}">${getSondeLabel(i)} — Max</div><div class="stat-value" id="max-${i}" style="color:${COULEURS[i]}">--</div></div>
+        <div class="stat-box"><div class="stat-label" style="color:${COULEURS[i]}">${getSondeLabel(i)} — Moy</div><div class="stat-value" id="moy-${i}" style="color:${COULEURS[i]}">--</div></div>`;
+    }
+  }
+}
+
+function initialiserGraphique() {
+  if (chartInitialisé) return;
+  const chartEl = document.getElementById('tempChart');
+  if (!chartEl) return;
+  const ctx = chartEl.getContext('2d');
+  const datasets = COULEURS.slice(0, NB_SONDES).map((c, i) => ({
+    label: NOMS[i], data: [], borderColor: c, backgroundColor: c + '18', borderWidth: 2, pointRadius: 2, pointHoverRadius: 5, tension: 0.3, fill: false,
+  }));
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      animation: false, responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { type: 'time', time: { tooltipFormat: 'HH:mm:ss', displayFormats: { second: 'HH:mm:ss', minute: 'HH:mm', hour: 'HH:mm', day: 'DD/MM HH:mm' } }, ticks: { color: '#666', maxTicksLimit: 8 }, grid: { color: '#1e2130' } },
+        y: { ticks: { color: '#666', callback: v => v.toFixed(1) + ' °C' }, grid: { color: '#1e2130' } }
+      },
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a1d27', borderColor: '#2a2d3a', borderWidth: 1, titleColor: '#aaa', bodyColor: '#fff', callbacks: { label: ctx => ` ${ctx.dataset.label} : ${ctx.parsed.y.toFixed(2)} °C` } } }
+    }
+  });
+  chartInitialisé = true;
+}
+
+function rafraichirGraphique() {
+  if (!chart) return;
+  try {
+    const maintenant = new Date();
+    const limiteDebut = new Date(maintenant - fenetreSec * 1000);
+    for (let i = 0; i < NB_SONDES; i++) {
+      const ptsAffiches = donnees[i].filter(p => p.t >= limiteDebut);
+      if (chart.data.datasets[i]) {
+        chart.data.datasets[i].data = ptsAffiches.map(p => ({ x: p.t, y: p.v }));
+      }
+      donnees[i] = donnees[i].filter(p => p.t >= new Date(maintenant - 86400 * 1000));
+      if (ptsAffiches.length > 0) {
+        const vals = ptsAffiches.map(p => p.v);
+        const minEl = document.getElementById(`min-${i}`);
+        const maxEl = document.getElementById(`max-${i}`);
+        const moyEl = document.getElementById(`moy-${i}`);
+        if (minEl) minEl.textContent = Math.min(...vals).toFixed(1) + ' °C';
+        if (maxEl) maxEl.textContent = Math.max(...vals).toFixed(1) + ' °C';
+        if (moyEl) moyEl.textContent = (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) + ' °C';
+      }
+    }
+    chart.update('none');
+  } catch (e) {
+    console.warn('Erreur lors de la mise à jour du graphique:', e);
+  }
+}
+// Initialize graph refresh after DOM is ready
+let rafraichirInterval = null;
+function demarrerRafraichirGraphique() {
+  if (rafraichirInterval) clearInterval(rafraichirInterval);
+  rafraichirInterval = setInterval(rafraichirGraphique, intervalMesurage);
+}
+
+function normaliserIntervalMesurage(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 30000;
+  return ALLOWED_REFRESH_INTERVALS.includes(parsed) ? parsed : 30000;
+}
+
+function synchroniserBoutonsIntervalMesurage() {
+  const refreshBtnsEl = document.getElementById('refresh-btns');
+  if (!refreshBtnsEl) return;
+  refreshBtnsEl.querySelectorAll('button').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.refresh, 10) === intervalMesurage);
+  });
+}
+
+async function chargerIntervalMesurageServeur() {
+  const response = await sendToServer(`/api/config/${encodeURIComponent(LOG_INTERVAL_CONFIG_KEY)}`);
+  const value = response && response.value;
+  if (!Number.isFinite(Number(value))) return;
+  intervalMesurage = normaliserIntervalMesurage(value);
+  localStorage.setItem('refresh_interval', String(intervalMesurage));
+  demarrerRafraichirGraphique();
+  synchroniserBoutonsIntervalMesurage();
+}
+
+async function sauvegarderIntervalMesurageServeur() {
+  await sendToServer(`/api/config/${encodeURIComponent(LOG_INTERVAL_CONFIG_KEY)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: intervalMesurage })
+  });
+}
+
+function changerIntervalMesurage(newInterval) {
+  intervalMesurage = normaliserIntervalMesurage(newInterval);
+  localStorage.setItem('refresh_interval', String(intervalMesurage));
+  demarrerRafraichirGraphique();
+  synchroniserBoutonsIntervalMesurage();
+  sauvegarderIntervalMesurageServeur();
+}
+
+// Charger l'intervalle depuis localStorage
+const savedInterval = localStorage.getItem('refresh_interval');
+if (savedInterval) intervalMesurage = normaliserIntervalMesurage(savedInterval);
+
+const timeBtnsEl = document.getElementById('time-btns');
+if (timeBtnsEl) {
+  timeBtnsEl.addEventListener('click', e => {
+    if (!e.target.dataset.s) return;
+    fenetreSec = parseInt(e.target.dataset.s);
+    document.querySelectorAll('#time-btns button').forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active');
+    rafraichirGraphique();
+  });
+}
+
+const refreshBtnsEl = document.getElementById('refresh-btns');
+if (refreshBtnsEl) {
+  refreshBtnsEl.addEventListener('click', e => {
+    if (!e.target.dataset.refresh) return;
+    const newInterval = parseInt(e.target.dataset.refresh);
+    changerIntervalMesurage(newInterval);
+  });
+}
+
+synchroniserBoutonsIntervalMesurage();
+chargerIntervalMesurageServeur();
 
 function demarrerMQTT() {
   const dotEl = document.getElementById('dot');
@@ -1466,10 +1565,15 @@ function demarrerMQTT() {
       const data = JSON.parse(message.toString());
       
       if (topic === "temperatures/ventilateurs") {
-        document.getElementById("status-venti-mode").textContent = data.mode || "AUTO";
-        document.getElementById("status-venti-mode").style.color = data.mode === "MANU" ? "#ffb74d" : "#4f4";
-        document.getElementById("status-venti-pwm").textContent = data.pwm_pct + " %";
-        document.getElementById("status-venti-tmax").textContent = data.temp_max.toFixed(1) + " °C";
+        const ventiModeEl = document.getElementById("status-venti-mode");
+        const ventiPwmEl = document.getElementById("status-venti-pwm");
+        const ventiTmaxEl = document.getElementById("status-venti-tmax");
+        if (ventiModeEl) {
+          ventiModeEl.textContent = data.mode || "AUTO";
+          ventiModeEl.style.color = data.mode === "MANU" ? "#ffb74d" : "#4f4";
+        }
+        if (ventiPwmEl) ventiPwmEl.textContent = data.pwm_pct + " %";
+        if (ventiTmaxEl) ventiTmaxEl.textContent = data.temp_max.toFixed(1) + " °C";
         return;
       }
 
@@ -1481,12 +1585,16 @@ function demarrerMQTT() {
       donnees[idx].push({ t: now, v: temp });
       dernieresTemperatures[idx] = temp;
       ajouterAuLog(idx, temp, now);
-      document.getElementById(`temp-${idx}`).innerHTML = temp.toFixed(2) + '<span class="card-unit">°C</span>';
+      const tempEl = document.getElementById(`temp-${idx}`);
+      if (tempEl) tempEl.innerHTML = temp.toFixed(2) + '<span class="card-unit">°C</span>';
       
       updateTotemTemp(idx, temp);
       appliquerAlerteMonitoring(idx, temp, now);
-      cardEls[idx].classList.add('active');
-    } catch(e) { }
+      if (cardEls[idx]) cardEls[idx].classList.add('active');
+      
+      // Rafraîchir le graphique immédiatement au lieu d'attendre 1 seconde
+      rafraichirGraphique();
+    } catch(e) { console.warn('Erreur MQTT message:', e); }
   });
 }
 
